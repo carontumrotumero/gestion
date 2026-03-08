@@ -37,6 +37,7 @@ const elements = {
   passwordInput: document.getElementById("passwordInput"),
   authMessage: document.getElementById("authMessage"),
   appVersion: document.getElementById("appVersion"),
+  debugLog: document.getElementById("debugLog"),
   userBadge: document.getElementById("userBadge"),
   logoutBtn: document.getElementById("logoutBtn"),
   searchInput: document.getElementById("searchInput"),
@@ -57,16 +58,19 @@ let supabase = null;
 
 boot().catch((error) => {
   console.error("Fallo de arranque", error);
+  appLog(`Fallo de arranque: ${formatError(error)}`);
   showAuth();
   setAuthMessage(`Error de arranque: ${formatError(error)}`, "error");
 });
 
 async function boot() {
+  appLog("Boot iniciado");
   if (elements.appVersion) {
     elements.appVersion.textContent = `Build ${APP_VERSION}`;
   }
 
   if (!window.supabase || typeof window.supabase.createClient !== "function") {
+    appLog("No está disponible window.supabase");
     throw new Error("No cargó supabase-js desde CDN");
   }
 
@@ -81,18 +85,22 @@ async function boot() {
   });
 
   wireEvents();
+  appLog("Eventos conectados");
   await bootstrapSession();
 }
 
 async function bootstrapSession() {
+  appLog("Comprobando conexión a tabla");
   setAuthMessage("Comprobando conexión...", "info");
 
   const { error: pingError } = await supabase.from(TABLE_NAME).select("id", { head: true, count: "exact" }).limit(1);
   if (pingError) {
+    appLog(`Ping DB error: ${mapDbError(pingError)}`);
     showAuth();
     setAuthMessage(`Conexión DB fallida: ${mapDbError(pingError)}`, "error");
     return;
   }
+  appLog("Ping DB OK");
 
   const {
     data: { session },
@@ -100,6 +108,7 @@ async function bootstrapSession() {
   } = await supabase.auth.getSession();
 
   if (sessionError) {
+    appLog(`Error getSession: ${mapAuthError(sessionError)}`);
     showAuth();
     setAuthMessage(`Error leyendo sesión: ${mapAuthError(sessionError)}`, "error");
     return;
@@ -107,8 +116,10 @@ async function bootstrapSession() {
 
   state.session = session;
   if (session) {
+    appLog(`Sesión existente detectada: ${session.user?.email || "sin email"}`);
     await showAppForSession(session);
   } else {
+    appLog("Sin sesión activa");
     showAuth();
     setAuthMessage("Listo para iniciar sesión.", "info");
   }
@@ -184,27 +195,32 @@ function wireEvents() {
 async function onLogin(event) {
   event.preventDefault();
   await runBusy(async () => {
+    appLog("Click Entrar");
     setAuthMessage("Iniciando sesión...", "info");
 
     const email = elements.emailInput.value.trim();
     const password = elements.passwordInput.value;
 
     if (!email || !password) {
+      appLog("Login abortado: faltan campos");
       setAuthMessage("Debes rellenar email y contraseña.", "error");
       return;
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      appLog(`Login error: ${mapAuthError(error)}`);
       setAuthMessage(mapAuthError(error), "error");
       return;
     }
 
     if (!data.session) {
+      appLog("Login sin sesión devuelta");
       setAuthMessage("Login aceptado pero no hay sesión. Reintenta en 2 segundos.", "error");
       return;
     }
 
+    appLog(`Login correcto: ${data.session.user?.email || "sin email"}`);
     await showAppForSession(data.session);
     setAuthMessage("Sesión iniciada.", "success");
   });
@@ -212,23 +228,27 @@ async function onLogin(event) {
 
 async function onRegister() {
   await runBusy(async () => {
+    appLog("Click Registrarse");
     setAuthMessage("Creando cuenta...", "info");
 
     const email = elements.emailInput.value.trim();
     const password = elements.passwordInput.value;
 
     if (!email || !password || password.length < 6) {
+      appLog("Registro abortado: datos inválidos");
       setAuthMessage("Usa email válido y contraseña de al menos 6 caracteres.", "error");
       return;
     }
 
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
+      appLog(`Registro error: ${mapAuthError(error)}`);
       setAuthMessage(mapAuthError(error), "error");
       return;
     }
 
     if (data.session) {
+      appLog(`Registro + sesión OK: ${data.session.user?.email || "sin email"}`);
       await showAppForSession(data.session);
       setAuthMessage("Cuenta creada y sesión iniciada.", "success");
       return;
@@ -236,11 +256,13 @@ async function onRegister() {
 
     const loginAttempt = await supabase.auth.signInWithPassword({ email, password });
     if (!loginAttempt.error && loginAttempt.data.session) {
+      appLog("Registro OK + login automático OK");
       await showAppForSession(loginAttempt.data.session);
       setAuthMessage("Cuenta creada e inicio automático correcto.", "success");
       return;
     }
 
+    appLog("Registro creado pero requiere confirmación por email");
     setAuthMessage(
       "Cuenta creada pero requiere confirmación por email. Si no recibes correo, desactiva confirmación en Supabase Auth.",
       "info"
@@ -254,6 +276,7 @@ function showAuth() {
 }
 
 async function showAppForSession(session) {
+  appLog(`Entrando a dashboard: ${session?.user?.email || "sin email"}`);
   elements.authGate.classList.add("hidden");
   elements.appShell.classList.remove("hidden");
   elements.userBadge.textContent = session?.user?.email || "Usuario";
@@ -261,23 +284,28 @@ async function showAppForSession(session) {
 }
 
 async function loadRemoteRows() {
+  appLog("Cargando filas remotas...");
   const { data, error } = await supabase.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
 
   if (error) {
+    appLog(`Error leyendo filas: ${mapDbError(error)}`);
     throw new Error(`No se pudo leer la tabla: ${mapDbError(error)}`);
   }
 
   if (!Array.isArray(data) || data.length === 0) {
     const seedRows = await loadInitialDatasetRows();
     if (seedRows.length > 0) {
+      appLog(`Tabla vacía, insertando semilla: ${seedRows.length} filas`);
       await insertRows(seedRows);
       const reload = await supabase.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
       if (reload.error) {
+        appLog(`Error recarga tras semilla: ${mapDbError(reload.error)}`);
         throw new Error(`Insertó semilla pero no pudo recargar: ${mapDbError(reload.error)}`);
       }
       state.rows = (reload.data || []).map((item) => ({ id: item.id, data: item.data || {} }));
       state.headers = inferHeaders(state.rows);
       refreshUI();
+      appLog(`Dashboard lista con ${state.rows.length} filas`);
       return;
     }
   }
@@ -285,6 +313,7 @@ async function loadRemoteRows() {
   state.rows = (data || []).map((item) => ({ id: item.id, data: item.data || {} }));
   state.headers = inferHeaders(state.rows);
   refreshUI();
+  appLog(`Dashboard lista con ${state.rows.length} filas`);
 }
 
 async function onFileUpload(event) {
@@ -840,6 +869,7 @@ async function runBusy(fn) {
   } catch (error) {
     console.error(error);
     const readable = formatError(error);
+    appLog(`Error: ${readable}`);
     if (elements.appShell.classList.contains("hidden")) {
       setAuthMessage(readable, "error");
     } else {
@@ -865,4 +895,14 @@ function readTextFile(file) {
     reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
     reader.readAsText(file, "utf-8");
   });
+}
+
+function appLog(message) {
+  const line = `[${new Date().toLocaleTimeString("es-ES")}] ${message}`;
+  if (elements.debugLog) {
+    const prev = elements.debugLog.textContent || "";
+    const next = prev ? `${prev}\n${line}` : line;
+    elements.debugLog.textContent = next;
+    elements.debugLog.scrollTop = elements.debugLog.scrollHeight;
+  }
 }
