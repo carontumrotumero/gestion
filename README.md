@@ -26,3 +26,10 @@ Abrir: [http://localhost:8080](http://localhost:8080)
 - Solo usuarios autenticados ven y editan datos.
 - La primera vez, si la tabla está vacía, se importa base desde `Vanaco Working Force/Principal.html`.
 - También puedes reemplazar datos con "Importar archivo" (`.html` o `.csv`).
+
+## 4) Diagnóstico rápido (si no entra)
+
+1. Verifica que en login aparezca `Build 2026-03-09.1` (si no, Vercel está sirviendo versión vieja).
+2. Si el registro falla con límite de email: desactiva confirmación por email o configura SMTP.
+3. Si no guarda filas: revisa que estés autenticado y que `supabase-setup.sql` esté aplicado.
+4. Haz hard refresh en Safari: `Cmd + Shift + R`.

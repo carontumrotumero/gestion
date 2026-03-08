@@ -1,4 +1,5 @@
 const SUPABASE_URL = "https://xjxscoqtnmlbxmetcpod.supabase.co";
+const APP_VERSION = "2026-03-09.1";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
 
@@ -17,8 +18,6 @@ const DEFAULT_HEADERS = [
   "HOW TO",
 ];
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
 const state = {
   headers: [...DEFAULT_HEADERS],
   rows: [],
@@ -26,6 +25,7 @@ const state = {
   statusFilter: "",
   paymentFilter: "",
   session: null,
+  isBusy: false,
 };
 
 const elements = {
@@ -36,6 +36,7 @@ const elements = {
   emailInput: document.getElementById("emailInput"),
   passwordInput: document.getElementById("passwordInput"),
   authMessage: document.getElementById("authMessage"),
+  appVersion: document.getElementById("appVersion"),
   userBadge: document.getElementById("userBadge"),
   logoutBtn: document.getElementById("logoutBtn"),
   searchInput: document.getElementById("searchInput"),
@@ -52,21 +53,65 @@ const elements = {
   newEntryForm: document.getElementById("newEntryForm"),
 };
 
-init();
+let supabase = null;
 
-async function init() {
+boot().catch((error) => {
+  console.error("Fallo de arranque", error);
+  showAuth();
+  setAuthMessage(`Error de arranque: ${formatError(error)}`, "error");
+});
+
+async function boot() {
+  if (elements.appVersion) {
+    elements.appVersion.textContent = `Build ${APP_VERSION}`;
+  }
+
+  if (!window.supabase || typeof window.supabase.createClient !== "function") {
+    throw new Error("No cargó supabase-js desde CDN");
+  }
+
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      flowType: "pkce",
+      storage: window.localStorage,
+    },
+  });
+
   wireEvents();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  state.session = session;
+  await bootstrapSession();
+}
 
-  if (!session) {
+async function bootstrapSession() {
+  setAuthMessage("Comprobando conexión...", "info");
+
+  const { error: pingError } = await supabase.from(TABLE_NAME).select("id", { head: true, count: "exact" }).limit(1);
+  if (pingError) {
     showAuth();
+    setAuthMessage(`Conexión DB fallida: ${mapDbError(pingError)}`, "error");
     return;
   }
 
-  await showAppForSession(session);
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) {
+    showAuth();
+    setAuthMessage(`Error leyendo sesión: ${mapAuthError(sessionError)}`, "error");
+    return;
+  }
+
+  state.session = session;
+  if (session) {
+    await showAppForSession(session);
+  } else {
+    showAuth();
+    setAuthMessage("Listo para iniciar sesión.", "info");
+  }
 }
 
 function wireEvents() {
@@ -74,22 +119,34 @@ function wireEvents() {
   elements.registerBtn.addEventListener("click", onRegister);
 
   elements.logoutBtn.addEventListener("click", async () => {
-    await supabase.auth.signOut();
-    state.session = null;
-    showAuth();
+    await runBusy(async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      state.session = null;
+      showAuth();
+      setAuthMessage("Sesión cerrada.", "info");
+    });
   });
 
   supabase.auth.onAuthStateChange(async (_event, session) => {
     state.session = session;
     if (!session) {
       showAuth();
+      setAuthMessage("Listo para iniciar sesión.", "info");
       return;
     }
-    await showAppForSession(session);
+
+    try {
+      await showAppForSession(session);
+    } catch (error) {
+      console.error(error);
+      showAuth();
+      setAuthMessage(`Sesión detectada, pero falló carga de datos: ${formatError(error)}`, "error");
+    }
   });
 
   elements.searchInput.addEventListener("input", (e) => {
-    state.search = e.target.value.toLowerCase().trim();
+    state.search = String(e.target.value || "").toLowerCase().trim();
     renderTable();
     updateStats();
   });
@@ -110,118 +167,122 @@ function wireEvents() {
   elements.csvInput.addEventListener("change", onFileUpload);
 
   elements.addRowBtn.addEventListener("click", async () => {
-    await createRow(Object.fromEntries(state.headers.map((h) => [h, ""])));
+    await runBusy(async () => {
+      await createRow(Object.fromEntries(state.headers.map((h) => [h, ""])));
+    });
   });
 
   elements.downloadBtn.addEventListener("click", downloadCsv);
 
   elements.resetBtn.addEventListener("click", async () => {
-    await loadRemoteRows();
+    await runBusy(async () => {
+      await loadRemoteRows();
+    });
   });
 }
 
 async function onLogin(event) {
   event.preventDefault();
-  setAuthMessage("", "info");
+  await runBusy(async () => {
+    setAuthMessage("Iniciando sesión...", "info");
 
-  const email = elements.emailInput.value.trim();
-  const password = elements.passwordInput.value;
+    const email = elements.emailInput.value.trim();
+    const password = elements.passwordInput.value;
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    const msg = mapAuthError(error);
-    setAuthMessage(msg, "error");
-    return;
-  }
+    if (!email || !password) {
+      setAuthMessage("Debes rellenar email y contraseña.", "error");
+      return;
+    }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setAuthMessage(mapAuthError(error), "error");
+      return;
+    }
 
-  if (session) {
-    setAuthMessage("Acceso correcto. Entrando...", "success");
-    await showAppForSession(session);
-    return;
-  }
+    if (!data.session) {
+      setAuthMessage("Login aceptado pero no hay sesión. Reintenta en 2 segundos.", "error");
+      return;
+    }
 
-  setAuthMessage("Inicio correcto, pero no se pudo abrir sesión en este navegador.", "error");
+    await showAppForSession(data.session);
+    setAuthMessage("Sesión iniciada.", "success");
+  });
 }
 
 async function onRegister() {
-  setAuthMessage("", "info");
-  const email = elements.emailInput.value.trim();
-  const password = elements.passwordInput.value;
+  await runBusy(async () => {
+    setAuthMessage("Creando cuenta...", "info");
 
-  if (!email || !password || password.length < 6) {
-    setAuthMessage("Introduce email válido y contraseña de al menos 6 caracteres.", "error");
-    return;
-  }
+    const email = elements.emailInput.value.trim();
+    const password = elements.passwordInput.value;
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
+    if (!email || !password || password.length < 6) {
+      setAuthMessage("Usa email válido y contraseña de al menos 6 caracteres.", "error");
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      setAuthMessage(mapAuthError(error), "error");
+      return;
+    }
+
+    if (data.session) {
+      await showAppForSession(data.session);
+      setAuthMessage("Cuenta creada y sesión iniciada.", "success");
+      return;
+    }
+
+    const loginAttempt = await supabase.auth.signInWithPassword({ email, password });
+    if (!loginAttempt.error && loginAttempt.data.session) {
+      await showAppForSession(loginAttempt.data.session);
+      setAuthMessage("Cuenta creada e inicio automático correcto.", "success");
+      return;
+    }
+
+    setAuthMessage(
+      "Cuenta creada pero requiere confirmación por email. Si no recibes correo, desactiva confirmación en Supabase Auth.",
+      "info"
+    );
   });
-
-  if (error) {
-    setAuthMessage(`No se pudo registrar: ${mapAuthError(error)}`, "error");
-    return;
-  }
-
-  if (data.session) {
-    setAuthMessage("Cuenta creada y sesión iniciada.", "success");
-    await showAppForSession(data.session);
-    return;
-  }
-
-  const loginAttempt = await supabase.auth.signInWithPassword({ email, password });
-  if (!loginAttempt.error && loginAttempt.data.session) {
-    setAuthMessage("Cuenta creada e inicio de sesión correcto.", "success");
-    await showAppForSession(loginAttempt.data.session);
-    return;
-  }
-
-  setAuthMessage(
-    "Cuenta creada. Si no entra, confirma el email en Supabase o desactiva confirmación de email.",
-    "info"
-  );
 }
 
 function showAuth() {
   elements.appShell.classList.add("hidden");
   elements.authGate.classList.remove("hidden");
-  elements.passwordInput.value = "";
-  setAuthMessage("", "info");
 }
 
 async function showAppForSession(session) {
   elements.authGate.classList.add("hidden");
   elements.appShell.classList.remove("hidden");
-  elements.userBadge.textContent = session.user.email || "Usuario";
+  elements.userBadge.textContent = session?.user?.email || "Usuario";
   await loadRemoteRows();
 }
 
 async function loadRemoteRows() {
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select("id,data,created_at")
-    .order("created_at", { ascending: false });
+  const { data, error } = await supabase.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
 
   if (error) {
-    const details = error?.message || "Error desconocido";
-    alert(`Error cargando datos de Supabase: ${details}`);
-    console.error(error);
-    return;
+    throw new Error(`No se pudo leer la tabla: ${mapDbError(error)}`);
   }
 
-  if (!data.length) {
-    const seed = await loadInitialDatasetRows();
-    if (seed.length) {
-      await insertRows(seed);
-      return await loadRemoteRows();
+  if (!Array.isArray(data) || data.length === 0) {
+    const seedRows = await loadInitialDatasetRows();
+    if (seedRows.length > 0) {
+      await insertRows(seedRows);
+      const reload = await supabase.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
+      if (reload.error) {
+        throw new Error(`Insertó semilla pero no pudo recargar: ${mapDbError(reload.error)}`);
+      }
+      state.rows = (reload.data || []).map((item) => ({ id: item.id, data: item.data || {} }));
+      state.headers = inferHeaders(state.rows);
+      refreshUI();
+      return;
     }
   }
 
-  state.rows = data.map((item) => ({ id: item.id, data: item.data || {} }));
+  state.rows = (data || []).map((item) => ({ id: item.id, data: item.data || {} }));
   state.headers = inferHeaders(state.rows);
   refreshUI();
 }
@@ -230,26 +291,34 @@ async function onFileUpload(event) {
   const file = event.target.files?.[0];
   if (!file) return;
 
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const parsed = parseRowsFromText(String(reader.result || ""), file.name);
-      const ok = confirm("Esto reemplazará todos los datos de la nube por el archivo cargado. ¿Continuar?");
-      if (!ok) return;
-      await replaceAllRows(parsed);
-      await loadRemoteRows();
-    } catch (error) {
-      alert("Archivo inválido. Usa un .csv o .html exportado.");
-      console.error(error);
+  await runBusy(async () => {
+    const fileText = await readTextFile(file);
+    const parsedRows = parseRowsFromText(fileText, file.name);
+
+    if (!parsedRows.length) {
+      alert("El archivo no contiene filas válidas.");
+      return;
     }
-  };
-  reader.readAsText(file, "utf-8");
+
+    const ok = confirm("Esto reemplazará TODOS los datos en la nube. ¿Continuar?");
+    if (!ok) return;
+
+    await replaceAllRows(parsedRows);
+    await loadRemoteRows();
+  });
+
   event.target.value = "";
 }
 
 async function replaceAllRows(rowsData) {
-  const { error: deleteError } = await supabase.from(TABLE_NAME).delete().neq("id", "00000000-0000-0000-0000-000000000000");
-  if (deleteError) throw deleteError;
+  const { error: deleteError } = await supabase
+    .from(TABLE_NAME)
+    .delete()
+    .neq("id", "00000000-0000-0000-0000-000000000000");
+  if (deleteError) {
+    throw new Error(`No se pudieron borrar filas previas: ${mapDbError(deleteError)}`);
+  }
+
   await insertRows(rowsData);
 }
 
@@ -261,16 +330,16 @@ async function insertRows(rowsData) {
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
     const { error } = await supabase.from(TABLE_NAME).insert(chunk);
-    if (error) throw error;
+    if (error) {
+      throw new Error(`Error insertando bloque ${i / chunkSize + 1}: ${mapDbError(error)}`);
+    }
   }
 }
 
 async function createRow(rowData) {
-  const { data, error } = await supabase.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data,created_at").single();
+  const { data, error } = await supabase.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data").single();
   if (error) {
-    alert(`No se pudo crear la fila: ${error.message || "error desconocido"}`);
-    console.error(error);
-    return;
+    throw new Error(`No se pudo crear la fila: ${mapDbError(error)}`);
   }
 
   state.rows.unshift({ id: data.id, data: data.data || {} });
@@ -281,18 +350,16 @@ async function createRow(rowData) {
 async function updateRow(rowId, rowData) {
   const { error } = await supabase.from(TABLE_NAME).update({ data: rowData }).eq("id", rowId);
   if (error) {
-    alert(`No se pudo guardar la edición: ${error.message || "error desconocido"}`);
-    console.error(error);
+    throw new Error(`No se pudo guardar edición: ${mapDbError(error)}`);
   }
 }
 
 async function deleteRow(rowId) {
   const { error } = await supabase.from(TABLE_NAME).delete().eq("id", rowId);
   if (error) {
-    alert(`No se pudo eliminar la fila: ${error.message || "error desconocido"}`);
-    console.error(error);
-    return;
+    throw new Error(`No se pudo eliminar fila: ${mapDbError(error)}`);
   }
+
   state.rows = state.rows.filter((row) => row.id !== rowId);
   state.headers = inferHeaders(state.rows);
   refreshUI();
@@ -308,6 +375,7 @@ function renderTable() {
     th.textContent = header;
     headerRow.appendChild(th);
   });
+
   const actionsTh = document.createElement("th");
   actionsTh.textContent = "Acciones";
   headerRow.appendChild(actionsTh);
@@ -322,11 +390,17 @@ function renderTable() {
       const td = document.createElement("td");
       const input = document.createElement("input");
       input.value = rowObj.data[header] ?? "";
+
       input.addEventListener("change", async (e) => {
-        rowObj.data[header] = e.target.value;
-        await updateRow(rowObj.id, rowObj.data);
-        updateStats();
+        try {
+          rowObj.data[header] = e.target.value;
+          await updateRow(rowObj.id, rowObj.data);
+          updateStats();
+        } catch (error) {
+          alert(formatError(error));
+        }
       });
+
       td.appendChild(input);
       tr.appendChild(td);
     });
@@ -339,7 +413,11 @@ function renderTable() {
     removeBtn.type = "button";
     removeBtn.textContent = "Eliminar";
     removeBtn.addEventListener("click", async () => {
-      await deleteRow(rowObj.id);
+      try {
+        await deleteRow(rowObj.id);
+      } catch (error) {
+        alert(formatError(error));
+      }
     });
 
     actionsTd.appendChild(removeBtn);
@@ -350,6 +428,7 @@ function renderTable() {
 
 function buildForm() {
   elements.newEntryForm.innerHTML = "";
+
   state.headers.forEach((header) => {
     const wrap = document.createElement("label");
     wrap.className = "field";
@@ -374,13 +453,21 @@ function buildForm() {
 
   elements.newEntryForm.onsubmit = async (event) => {
     event.preventDefault();
-    const data = new FormData(elements.newEntryForm);
+    const formData = new FormData(elements.newEntryForm);
     const row = {};
+
     state.headers.forEach((header) => {
-      row[header] = String(data.get(header) || "").trim();
+      row[header] = String(formData.get(header) || "").trim();
     });
-    await createRow(row);
-    elements.newEntryForm.reset();
+
+    try {
+      await runBusy(async () => {
+        await createRow(row);
+      });
+      elements.newEntryForm.reset();
+    } catch (error) {
+      alert(formatError(error));
+    }
   };
 }
 
@@ -397,6 +484,7 @@ function fillSelect(select, headerName) {
   select.innerHTML = "<option value=''>Todos</option>";
 
   if (!headerName) return;
+
   const values = [...new Set(state.rows.map((row) => row.data[headerName]).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b)
   );
@@ -420,9 +508,9 @@ function getFilteredRows() {
   return state.rows.filter((row) => {
     const rowText = state.headers.map((h) => String(row.data[h] || "").toLowerCase()).join(" ");
     const matchesSearch = !state.search || rowText.includes(state.search);
-    const matchesStatus = !state.statusFilter || !statusHeader || (row.data[statusHeader] || "") === state.statusFilter;
+    const matchesStatus = !state.statusFilter || !statusHeader || String(row.data[statusHeader] || "") === state.statusFilter;
     const matchesPayment =
-      !state.paymentFilter || !paymentHeader || (row.data[paymentHeader] || "") === state.paymentFilter;
+      !state.paymentFilter || !paymentHeader || String(row.data[paymentHeader] || "") === state.paymentFilter;
 
     return matchesSearch && matchesStatus && matchesPayment;
   });
@@ -483,42 +571,44 @@ async function loadInitialDatasetRows() {
       return parseRowsFromText(htmlText, "Principal.html");
     }
   } catch {
-    // Continue with CSV fallback.
+    // fallback to CSV
   }
 
-  const csvResponse = await fetch(ORIGINAL_CSV_FILE);
-  if (!csvResponse.ok) return [];
-  const csvText = await csvResponse.text();
-  return parseRowsFromText(csvText, "Principal.csv");
+  try {
+    const csvResponse = await fetch(ORIGINAL_CSV_FILE);
+    if (!csvResponse.ok) return [];
+    const csvText = await csvResponse.text();
+    return parseRowsFromText(csvText, "Principal.csv");
+  } catch {
+    return [];
+  }
 }
 
 function parseRowsFromText(content, fileName = "") {
   const lowerName = fileName.toLowerCase();
   const looksLikeHtml = lowerName.endsWith(".html") || lowerName.endsWith(".htm") || /<table/i.test(content);
-
-  if (looksLikeHtml) {
-    return parseRowsFromHtml(content);
-  }
-  return parseRowsFromCsv(content);
+  return looksLikeHtml ? parseRowsFromHtml(content) : parseRowsFromCsv(content);
 }
 
 function parseRowsFromCsv(csvText) {
   const parsed = parseCsv(csvText);
   if (!parsed.length) throw new Error("CSV sin datos");
 
-  const headers = parsed[0].map((h, index) => (h && h.trim() ? h.trim() : index === 0 ? "NAME" : `COLUMN_${index + 1}`));
-  const rows = parsed
+  const headers = parsed[0].map((h, index) => {
+    const v = String(h || "").trim();
+    return v || (index === 0 ? "NAME" : `COLUMN_${index + 1}`);
+  });
+
+  return parsed
     .slice(1)
     .map((line) => {
       const row = {};
-      headers.forEach((header, i) => {
-        row[header] = line[i] ? line[i].trim() : "";
+      headers.forEach((header, idx) => {
+        row[header] = String(line[idx] || "").trim();
       });
       return row;
     })
     .filter((row) => isMeaningfulRow(row, headers));
-
-  return rows;
 }
 
 function parseRowsFromHtml(htmlText) {
@@ -528,7 +618,7 @@ function parseRowsFromHtml(htmlText) {
   if (!table) throw new Error("No se encontró tabla en el HTML");
 
   const bodyRows = [...table.querySelectorAll("tbody tr")];
-  if (!bodyRows.length) throw new Error("Tabla sin filas");
+  if (!bodyRows.length) throw new Error("Tabla HTML sin filas");
 
   const headerCells = [...(bodyRows[0]?.querySelectorAll("td") || [])];
   const headers = headerCells.map((cell, index) => {
@@ -536,20 +626,17 @@ function parseRowsFromHtml(htmlText) {
     return label || (index === 0 ? "NAME" : `COLUMN_${index + 1}`);
   });
 
-  const rows = bodyRows
+  return bodyRows
     .slice(1)
     .map((tr) => {
       const cells = [...tr.querySelectorAll("td")];
       const row = {};
       headers.forEach((header, index) => {
-        const cell = cells[index];
-        row[header] = cleanCellText(cell?.textContent || "");
+        row[header] = cleanCellText(cells[index]?.textContent || "");
       });
       return row;
     })
     .filter((row) => isMeaningfulRow(row, headers));
-
-  return rows;
 }
 
 function inferHeaders(rows) {
@@ -572,21 +659,18 @@ function inferHeaders(rows) {
 }
 
 function getHeaderByKeyword(keyword, excludes = []) {
-  const normalizedKeyword = keyword.toLowerCase();
+  const needle = String(keyword || "").toLowerCase();
   return (
-    state.headers.find((h) => {
-      const lower = h.toLowerCase();
-      return lower.includes(normalizedKeyword) && excludes.every((x) => !lower.includes(x.toLowerCase()));
+    state.headers.find((header) => {
+      const lower = header.toLowerCase();
+      return lower.includes(needle) && excludes.every((x) => !lower.includes(String(x).toLowerCase()));
     }) || null
   );
 }
 
 function parseMoney(value) {
   if (!value) return 0;
-  const normalized = String(value)
-    .replace(/[^0-9,.-]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
+  const normalized = String(value).replace(/[^0-9,.-]/g, "").replace(/\./g, "").replace(",", ".");
   const num = Number(normalized);
   return Number.isFinite(num) ? num : 0;
 }
@@ -616,18 +700,25 @@ function parseCsv(text) {
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (char === "," && !inQuotes) {
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
       row.push(value);
       value = "";
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
       if (char === "\r" && next === "\n") i += 1;
       row.push(value);
       if (row.length > 1 || row[0] !== "") rows.push(row);
       row = [];
       value = "";
-    } else {
-      value += char;
+      continue;
     }
+
+    value += char;
   }
 
   if (value !== "" || row.length) {
@@ -644,10 +735,7 @@ function toCsv(matrix) {
       line
         .map((cell) => {
           const raw = String(cell ?? "");
-          if (/[",\n\r]/.test(raw)) {
-            return `"${raw.replace(/"/g, '""')}"`;
-          }
-          return raw;
+          return /[",\n\r]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
         })
         .join(",")
     )
@@ -655,15 +743,14 @@ function toCsv(matrix) {
 }
 
 function isMeaningfulRow(row, headers) {
-  const hasAnyValue = Object.values(row).some((value) => value !== "");
+  const hasAnyValue = Object.values(row).some((value) => String(value || "").trim() !== "");
   if (!hasAnyValue) return false;
 
   const importantHeaders = ["name", "work", "status", "payment", "date", "how to"];
-  const hasImportantValue = headers.some((header) => {
+  return headers.some((header) => {
     const lower = header.toLowerCase();
     return importantHeaders.some((token) => lower.includes(token)) && String(row[header] || "").trim() !== "";
   });
-  return hasImportantValue;
 }
 
 function cleanCellText(value) {
@@ -681,34 +768,101 @@ function escapeHtml(value) {
 
 function setAuthMessage(message, tone = "info") {
   elements.authMessage.textContent = message;
+
   if (tone === "error") {
     elements.authMessage.style.color = "var(--danger)";
     return;
   }
+
   if (tone === "success") {
     elements.authMessage.style.color = "var(--accent)";
     return;
   }
+
   elements.authMessage.style.color = "var(--muted)";
 }
 
 function mapAuthError(error) {
   const msg = String(error?.message || "").toLowerCase();
   const code = String(error?.code || error?.error_code || "").toLowerCase();
+
   if (code.includes("over_email_send_rate_limit") || msg.includes("email rate limit exceeded")) {
-    return "Límite de emails de Supabase agotado. Desactiva confirmación por email o espera a que se reinicie el límite.";
+    return "Registro bloqueado por límite de emails en Supabase. Desactiva confirmación por email o configura SMTP.";
   }
+
   if (code.includes("email_address_invalid") || msg.includes("email address")) {
-    return "Email inválido para Supabase. Usa un email real (gmail/outlook) y revisa formato.";
+    return "El email no es válido para Supabase. Usa un correo real (gmail/outlook).";
   }
+
   if (msg.includes("email not confirmed")) {
     return "Tu email no está confirmado. Confirma el correo o desactiva confirmación en Supabase Auth.";
   }
+
   if (msg.includes("invalid login credentials")) {
     return "Credenciales inválidas. Revisa email y contraseña.";
   }
+
   if (msg.includes("signup is disabled")) {
-    return "El registro está desactivado en Supabase. Actívalo en Authentication > Providers.";
+    return "El registro está desactivado. Actívalo en Authentication > Providers.";
   }
-  return `No se pudo iniciar sesión: ${error?.message || "error desconocido"}`;
+
+  return `Error de autenticación: ${error?.message || "desconocido"}`;
+}
+
+function mapDbError(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || "");
+
+  if (code === "42501" || msg.includes("row-level security")) {
+    return "RLS bloqueando acceso. Debes estar autenticado y con políticas SQL aplicadas.";
+  }
+
+  if (code === "42p01" || msg.includes("relation") && msg.includes("does not exist")) {
+    return "La tabla workforce_entries no existe en Supabase.";
+  }
+
+  return error?.message || "Error de base de datos desconocido";
+}
+
+function formatError(error) {
+  if (!error) return "Error desconocido";
+  if (typeof error === "string") return error;
+  return error.message || JSON.stringify(error);
+}
+
+async function runBusy(fn) {
+  if (state.isBusy) return;
+  state.isBusy = true;
+  toggleAuthButtons(true);
+
+  try {
+    return await fn();
+  } catch (error) {
+    console.error(error);
+    const readable = formatError(error);
+    if (elements.appShell.classList.contains("hidden")) {
+      setAuthMessage(readable, "error");
+    } else {
+      alert(readable);
+    }
+    throw error;
+  } finally {
+    state.isBusy = false;
+    toggleAuthButtons(false);
+  }
+}
+
+function toggleAuthButtons(disabled) {
+  if (elements.registerBtn) elements.registerBtn.disabled = disabled;
+  const submitBtn = elements.loginForm?.querySelector("button[type='submit']");
+  if (submitBtn) submitBtn.disabled = disabled;
+}
+
+function readTextFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    reader.readAsText(file, "utf-8");
+  });
 }
