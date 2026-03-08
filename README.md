@@ -9,6 +9,7 @@ Web de gestión con acceso privado y datos en Supabase.
 3. En `Authentication > Providers`, deja Email activo.
 4. Para registro desde la web, deja activado `Enable email signups`.
 5. Opcional: en `Authentication > Email`, desactiva confirmación de email si quieres acceso inmediato tras registrarse.
+6. Si aparece `email rate limit exceeded`, desactiva confirmación por email o configura SMTP propio en Supabase.
 
 ## 2) Ejecutar en local
 

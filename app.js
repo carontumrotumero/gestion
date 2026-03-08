@@ -163,7 +163,7 @@ async function onRegister() {
   });
 
   if (error) {
-    setAuthMessage(`No se pudo registrar: ${error.message}`, "error");
+    setAuthMessage(`No se pudo registrar: ${mapAuthError(error)}`, "error");
     return;
   }
 
@@ -694,6 +694,13 @@ function setAuthMessage(message, tone = "info") {
 
 function mapAuthError(error) {
   const msg = String(error?.message || "").toLowerCase();
+  const code = String(error?.code || error?.error_code || "").toLowerCase();
+  if (code.includes("over_email_send_rate_limit") || msg.includes("email rate limit exceeded")) {
+    return "Límite de emails de Supabase agotado. Desactiva confirmación por email o espera a que se reinicie el límite.";
+  }
+  if (code.includes("email_address_invalid") || msg.includes("email address")) {
+    return "Email inválido para Supabase. Usa un email real (gmail/outlook) y revisa formato.";
+  }
   if (msg.includes("email not confirmed")) {
     return "Tu email no está confirmado. Confirma el correo o desactiva confirmación en Supabase Auth.";
   }
