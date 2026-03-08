@@ -32,6 +32,7 @@ const elements = {
   authGate: document.getElementById("authGate"),
   appShell: document.getElementById("appShell"),
   loginForm: document.getElementById("loginForm"),
+  registerBtn: document.getElementById("registerBtn"),
   emailInput: document.getElementById("emailInput"),
   passwordInput: document.getElementById("passwordInput"),
   authMessage: document.getElementById("authMessage"),
@@ -70,6 +71,7 @@ async function init() {
 
 function wireEvents() {
   elements.loginForm.addEventListener("submit", onLogin);
+  elements.registerBtn.addEventListener("click", onRegister);
 
   elements.logoutBtn.addEventListener("click", async () => {
     await supabase.auth.signOut();
@@ -127,14 +129,48 @@ async function onLogin(event) {
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    elements.authMessage.style.color = "var(--danger)";
     elements.authMessage.textContent = "No se pudo iniciar sesión. Revisa usuario/contraseña.";
+    return;
   }
+  elements.authMessage.style.color = "var(--accent)";
+  elements.authMessage.textContent = "Acceso correcto.";
+}
+
+async function onRegister() {
+  elements.authMessage.textContent = "";
+  const email = elements.emailInput.value.trim();
+  const password = elements.passwordInput.value;
+
+  if (!email || !password || password.length < 6) {
+    elements.authMessage.style.color = "var(--danger)";
+    elements.authMessage.textContent = "Introduce email válido y contraseña de al menos 6 caracteres.";
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (error) {
+    elements.authMessage.style.color = "var(--danger)";
+    elements.authMessage.textContent = `No se pudo registrar: ${error.message}`;
+    return;
+  }
+
+  const hasSession = Boolean(data.session);
+  elements.authMessage.style.color = "var(--accent)";
+  elements.authMessage.textContent = hasSession
+    ? "Cuenta creada y sesión iniciada."
+    : "Cuenta creada. Revisa tu email para confirmar y luego inicia sesión.";
 }
 
 function showAuth() {
   elements.appShell.classList.add("hidden");
   elements.authGate.classList.remove("hidden");
   elements.passwordInput.value = "";
+  elements.authMessage.style.color = "var(--muted)";
 }
 
 async function showAppForSession(session) {

@@ -7,8 +7,8 @@ Web de gestión con acceso privado y datos en Supabase.
 1. Ve a SQL Editor en tu proyecto Supabase.
 2. Ejecuta el contenido de [supabase-setup.sql](/Users/rotumerorontum/Documents/Pagina%20gestion/supabase-setup.sql).
 3. En `Authentication > Providers`, deja Email activo.
-4. Crea usuarios de equipo en `Authentication > Users`.
-5. Si no quieres registros abiertos, desactiva "Enable email signups".
+4. Para registro desde la web, deja activado `Enable email signups`.
+5. Opcional: en `Authentication > Email`, desactiva confirmación de email si quieres acceso inmediato tras registrarse.
 
 ## 2) Ejecutar en local
 
