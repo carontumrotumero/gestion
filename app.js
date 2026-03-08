@@ -122,29 +122,38 @@ function wireEvents() {
 
 async function onLogin(event) {
   event.preventDefault();
-  elements.authMessage.textContent = "";
+  setAuthMessage("", "info");
 
   const email = elements.emailInput.value.trim();
   const password = elements.passwordInput.value;
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    elements.authMessage.style.color = "var(--danger)";
-    elements.authMessage.textContent = "No se pudo iniciar sesión. Revisa usuario/contraseña.";
+    const msg = mapAuthError(error);
+    setAuthMessage(msg, "error");
     return;
   }
-  elements.authMessage.style.color = "var(--accent)";
-  elements.authMessage.textContent = "Acceso correcto.";
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (session) {
+    setAuthMessage("Acceso correcto. Entrando...", "success");
+    await showAppForSession(session);
+    return;
+  }
+
+  setAuthMessage("Inicio correcto, pero no se pudo abrir sesión en este navegador.", "error");
 }
 
 async function onRegister() {
-  elements.authMessage.textContent = "";
+  setAuthMessage("", "info");
   const email = elements.emailInput.value.trim();
   const password = elements.passwordInput.value;
 
   if (!email || !password || password.length < 6) {
-    elements.authMessage.style.color = "var(--danger)";
-    elements.authMessage.textContent = "Introduce email válido y contraseña de al menos 6 caracteres.";
+    setAuthMessage("Introduce email válido y contraseña de al menos 6 caracteres.", "error");
     return;
   }
 
@@ -154,23 +163,34 @@ async function onRegister() {
   });
 
   if (error) {
-    elements.authMessage.style.color = "var(--danger)";
-    elements.authMessage.textContent = `No se pudo registrar: ${error.message}`;
+    setAuthMessage(`No se pudo registrar: ${error.message}`, "error");
     return;
   }
 
-  const hasSession = Boolean(data.session);
-  elements.authMessage.style.color = "var(--accent)";
-  elements.authMessage.textContent = hasSession
-    ? "Cuenta creada y sesión iniciada."
-    : "Cuenta creada. Revisa tu email para confirmar y luego inicia sesión.";
+  if (data.session) {
+    setAuthMessage("Cuenta creada y sesión iniciada.", "success");
+    await showAppForSession(data.session);
+    return;
+  }
+
+  const loginAttempt = await supabase.auth.signInWithPassword({ email, password });
+  if (!loginAttempt.error && loginAttempt.data.session) {
+    setAuthMessage("Cuenta creada e inicio de sesión correcto.", "success");
+    await showAppForSession(loginAttempt.data.session);
+    return;
+  }
+
+  setAuthMessage(
+    "Cuenta creada. Si no entra, confirma el email en Supabase o desactiva confirmación de email.",
+    "info"
+  );
 }
 
 function showAuth() {
   elements.appShell.classList.add("hidden");
   elements.authGate.classList.remove("hidden");
   elements.passwordInput.value = "";
-  elements.authMessage.style.color = "var(--muted)";
+  setAuthMessage("", "info");
 }
 
 async function showAppForSession(session) {
@@ -187,7 +207,8 @@ async function loadRemoteRows() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    alert("Error cargando datos de Supabase. Revisa setup SQL y permisos.");
+    const details = error?.message || "Error desconocido";
+    alert(`Error cargando datos de Supabase: ${details}`);
     console.error(error);
     return;
   }
@@ -247,7 +268,7 @@ async function insertRows(rowsData) {
 async function createRow(rowData) {
   const { data, error } = await supabase.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data,created_at").single();
   if (error) {
-    alert("No se pudo crear la fila.");
+    alert(`No se pudo crear la fila: ${error.message || "error desconocido"}`);
     console.error(error);
     return;
   }
@@ -260,7 +281,7 @@ async function createRow(rowData) {
 async function updateRow(rowId, rowData) {
   const { error } = await supabase.from(TABLE_NAME).update({ data: rowData }).eq("id", rowId);
   if (error) {
-    alert("No se pudo guardar la edición.");
+    alert(`No se pudo guardar la edición: ${error.message || "error desconocido"}`);
     console.error(error);
   }
 }
@@ -268,7 +289,7 @@ async function updateRow(rowId, rowData) {
 async function deleteRow(rowId) {
   const { error } = await supabase.from(TABLE_NAME).delete().eq("id", rowId);
   if (error) {
-    alert("No se pudo eliminar la fila.");
+    alert(`No se pudo eliminar la fila: ${error.message || "error desconocido"}`);
     console.error(error);
     return;
   }
@@ -656,4 +677,31 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function setAuthMessage(message, tone = "info") {
+  elements.authMessage.textContent = message;
+  if (tone === "error") {
+    elements.authMessage.style.color = "var(--danger)";
+    return;
+  }
+  if (tone === "success") {
+    elements.authMessage.style.color = "var(--accent)";
+    return;
+  }
+  elements.authMessage.style.color = "var(--muted)";
+}
+
+function mapAuthError(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  if (msg.includes("email not confirmed")) {
+    return "Tu email no está confirmado. Confirma el correo o desactiva confirmación en Supabase Auth.";
+  }
+  if (msg.includes("invalid login credentials")) {
+    return "Credenciales inválidas. Revisa email y contraseña.";
+  }
+  if (msg.includes("signup is disabled")) {
+    return "El registro está desactivado en Supabase. Actívalo en Authentication > Providers.";
+  }
+  return `No se pudo iniciar sesión: ${error?.message || "error desconocido"}`;
 }
