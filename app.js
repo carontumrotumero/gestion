@@ -54,7 +54,7 @@ const elements = {
   newEntryForm: document.getElementById("newEntryForm"),
 };
 
-let supabase = null;
+let sbClient = null;
 
 boot().catch((error) => {
   console.error("Fallo de arranque", error);
@@ -74,7 +74,7 @@ async function boot() {
     throw new Error("No cargó supabase-js desde CDN");
   }
 
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -96,7 +96,7 @@ async function bootstrapSession() {
   const {
     data: { session },
     error: sessionError,
-  } = await supabase.auth.getSession();
+  } = await sbClient.auth.getSession();
 
   if (sessionError) {
     appLog(`Error getSession: ${mapAuthError(sessionError)}`);
@@ -122,7 +122,7 @@ function wireEvents() {
 
   elements.logoutBtn.addEventListener("click", async () => {
     await runBusy(async () => {
-      const { error } = await supabase.auth.signOut();
+      const { error } = await sbClient.auth.signOut();
       if (error) throw error;
       state.session = null;
       showAuth();
@@ -130,7 +130,7 @@ function wireEvents() {
     });
   });
 
-  supabase.auth.onAuthStateChange(async (_event, session) => {
+  sbClient.auth.onAuthStateChange(async (_event, session) => {
     state.session = session;
     if (!session) {
       showAuth();
@@ -198,7 +198,7 @@ async function onLogin(event) {
       return;
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await sbClient.auth.signInWithPassword({ email, password });
     if (error) {
       appLog(`Login error: ${mapAuthError(error)}`);
       setAuthMessage(mapAuthError(error), "error");
@@ -231,7 +231,7 @@ async function onRegister() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await sbClient.auth.signUp({ email, password });
     if (error) {
       appLog(`Registro error: ${mapAuthError(error)}`);
       setAuthMessage(mapAuthError(error), "error");
@@ -245,7 +245,7 @@ async function onRegister() {
       return;
     }
 
-    const loginAttempt = await supabase.auth.signInWithPassword({ email, password });
+    const loginAttempt = await sbClient.auth.signInWithPassword({ email, password });
     if (!loginAttempt.error && loginAttempt.data.session) {
       appLog("Registro OK + login automático OK");
       await showAppForSession(loginAttempt.data.session);
@@ -276,7 +276,7 @@ async function showAppForSession(session) {
 
 async function loadRemoteRows() {
   appLog("Cargando filas remotas...");
-  const { data, error } = await supabase.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
+  const { data, error } = await sbClient.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
 
   if (error) {
     appLog(`Error leyendo filas: ${mapDbError(error)}`);
@@ -288,7 +288,7 @@ async function loadRemoteRows() {
     if (seedRows.length > 0) {
       appLog(`Tabla vacía, insertando semilla: ${seedRows.length} filas`);
       await insertRows(seedRows);
-      const reload = await supabase.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
+      const reload = await sbClient.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
       if (reload.error) {
         appLog(`Error recarga tras semilla: ${mapDbError(reload.error)}`);
         throw new Error(`Insertó semilla pero no pudo recargar: ${mapDbError(reload.error)}`);
@@ -331,7 +331,7 @@ async function onFileUpload(event) {
 }
 
 async function replaceAllRows(rowsData) {
-  const { error: deleteError } = await supabase
+  const { error: deleteError } = await sbClient
     .from(TABLE_NAME)
     .delete()
     .neq("id", "00000000-0000-0000-0000-000000000000");
@@ -349,7 +349,7 @@ async function insertRows(rowsData) {
   const chunkSize = 200;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
-    const { error } = await supabase.from(TABLE_NAME).insert(chunk);
+    const { error } = await sbClient.from(TABLE_NAME).insert(chunk);
     if (error) {
       throw new Error(`Error insertando bloque ${i / chunkSize + 1}: ${mapDbError(error)}`);
     }
@@ -357,7 +357,7 @@ async function insertRows(rowsData) {
 }
 
 async function createRow(rowData) {
-  const { data, error } = await supabase.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data").single();
+  const { data, error } = await sbClient.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data").single();
   if (error) {
     throw new Error(`No se pudo crear la fila: ${mapDbError(error)}`);
   }
@@ -368,14 +368,14 @@ async function createRow(rowData) {
 }
 
 async function updateRow(rowId, rowData) {
-  const { error } = await supabase.from(TABLE_NAME).update({ data: rowData }).eq("id", rowId);
+  const { error } = await sbClient.from(TABLE_NAME).update({ data: rowData }).eq("id", rowId);
   if (error) {
     throw new Error(`No se pudo guardar edición: ${mapDbError(error)}`);
   }
 }
 
 async function deleteRow(rowId) {
-  const { error } = await supabase.from(TABLE_NAME).delete().eq("id", rowId);
+  const { error } = await sbClient.from(TABLE_NAME).delete().eq("id", rowId);
   if (error) {
     throw new Error(`No se pudo eliminar fila: ${mapDbError(error)}`);
   }
