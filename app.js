@@ -4,6 +4,7 @@ const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
 
 const TABLE_NAME = "workforce_entries";
+const ROW_LOAD_LIMIT = 500;
 const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = [
@@ -276,7 +277,11 @@ async function showAppForSession(session) {
 
 async function loadRemoteRows() {
   appLog("Cargando filas remotas...");
-  const { data, error } = await sbClient.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
+  const { data, error } = await sbClient
+    .from(TABLE_NAME)
+    .select("id,data,created_at")
+    .order("created_at", { ascending: false })
+    .limit(ROW_LOAD_LIMIT);
 
   if (error) {
     appLog(`Error leyendo filas: ${mapDbError(error)}`);
@@ -288,7 +293,11 @@ async function loadRemoteRows() {
     if (seedRows.length > 0) {
       appLog(`Tabla vacía, insertando semilla: ${seedRows.length} filas`);
       await insertRows(seedRows);
-      const reload = await sbClient.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false });
+      const reload = await sbClient
+        .from(TABLE_NAME)
+        .select("id,data,created_at")
+        .order("created_at", { ascending: false })
+        .limit(ROW_LOAD_LIMIT);
       if (reload.error) {
         appLog(`Error recarga tras semilla: ${mapDbError(reload.error)}`);
         throw new Error(`Insertó semilla pero no pudo recargar: ${mapDbError(reload.error)}`);
@@ -304,7 +313,7 @@ async function loadRemoteRows() {
   state.rows = (data || []).map((item) => ({ id: item.id, data: item.data || {} }));
   state.headers = inferHeaders(state.rows);
   refreshUI();
-  appLog(`Dashboard lista con ${state.rows.length} filas`);
+  appLog(`Dashboard lista con ${state.rows.length} filas (límite ${ROW_LOAD_LIMIT})`);
 }
 
 async function onFileUpload(event) {
