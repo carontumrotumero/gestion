@@ -102,7 +102,25 @@
       </main>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./app.js"></script>
+    <script>
+      window.__showFatal = function (message) {
+        var authMessage = document.getElementById("authMessage");
+        var debugLog = document.getElementById("debugLog");
+        if (authMessage) authMessage.textContent = "Error JS: " + message;
+        if (debugLog) debugLog.textContent = (debugLog.textContent ? debugLog.textContent + "\n" : "") + "[FATAL] " + message;
+      };
+      window.addEventListener("error", function (ev) {
+        window.__showFatal(ev.message || "Error desconocido");
+      });
+      window.addEventListener("unhandledrejection", function (ev) {
+        var msg = ev && ev.reason && (ev.reason.message || String(ev.reason));
+        window.__showFatal(msg || "Promise rechazada sin detalle");
+      });
+    </script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
+      onerror="window.__showFatal('No se pudo cargar supabase-js desde CDN')"
+    ></script>
+    <script src="./app.js" onerror="window.__showFatal('No se pudo cargar app.js (revisa deploy en Vercel)')"></script>
   </body>
 </html>

@@ -90,17 +90,8 @@ async function boot() {
 }
 
 async function bootstrapSession() {
-  appLog("Comprobando conexión a tabla");
-  setAuthMessage("Comprobando conexión...", "info");
-
-  const { error: pingError } = await supabase.from(TABLE_NAME).select("id", { head: true, count: "exact" }).limit(1);
-  if (pingError) {
-    appLog(`Ping DB error: ${mapDbError(pingError)}`);
-    showAuth();
-    setAuthMessage(`Conexión DB fallida: ${mapDbError(pingError)}`, "error");
-    return;
-  }
-  appLog("Ping DB OK");
+  appLog("Comprobando sesión...");
+  setAuthMessage("Comprobando sesión...", "info");
 
   const {
     data: { session },
