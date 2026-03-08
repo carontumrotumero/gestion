@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vanaco Working Force</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <section id="authGate" class="auth-shell">
+      <article class="auth-card">
+        <h1>Vanaco Working Force</h1>
+        <p>Acceso privado del equipo</p>
+
+        <form id="loginForm" class="auth-form">
+          <label class="field">
+            <span>Email</span>
+            <input id="emailInput" type="email" required placeholder="equipo@vanaco.com" />
+          </label>
+
+          <label class="field">
+            <span>Contraseña</span>
+            <input id="passwordInput" type="password" required placeholder="********" />
+          </label>
+
+          <button class="btn btn-primary" type="submit">Entrar</button>
+          <p id="authMessage" class="auth-message"></p>
+        </form>
+      </article>
+    </section>
+
+    <div id="appShell" class="hidden">
+      <header class="hero">
+        <div>
+          <h1>Vanaco Working Force</h1>
+          <p>Gestión de trabajos, pagos y seguimiento del equipo.</p>
+        </div>
+        <div class="hero-actions">
+          <span id="userBadge"></span>
+          <button id="logoutBtn" class="btn">Cerrar sesión</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel controls">
+          <div class="controls-row">
+            <label class="field">
+              <span>Buscar</span>
+              <input id="searchInput" type="text" placeholder="Nombre, trabajo, estado..." />
+            </label>
+
+            <label class="field">
+              <span>Filtro Estado</span>
+              <select id="statusFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Filtro Pago</span>
+              <select id="paymentFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="controls-row actions">
+            <button id="loadCsvBtn" class="btn">Importar archivo</button>
+            <input id="csvInput" type="file" accept=".csv,.html,.htm" hidden />
+            <button id="addRowBtn" class="btn">Añadir fila</button>
+            <button id="downloadBtn" class="btn btn-primary">Exportar CSV</button>
+            <button id="resetBtn" class="btn btn-danger">Recargar nube</button>
+          </div>
+        </section>
+
+        <section class="panel stats" id="stats"></section>
+
+        <section class="panel table-panel">
+          <div class="table-wrap">
+            <table id="dataTable">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel form-panel">
+          <h2>Nueva entrada</h2>
+          <form id="newEntryForm"></form>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
