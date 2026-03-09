@@ -1,4 +1,4 @@
-const APP_VERSION = "2026-03-09.4";
+const APP_VERSION = "2026-03-09.5";
 const SUPABASE_URL = "https://xjxscoqtnmlbxmetcpod.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
@@ -118,13 +118,13 @@ async function onLogin(event) {
       return;
     }
 
-    let login = await rpc("app_login_json", { p_payload: { username, password } });
+    let login = await loginRpc(username, password);
 
     // Bootstrap admin automático: si falla login, intenta crear admin inicial.
     if (!login?.ok) {
-      const bootstrap = await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
+      const bootstrap = await bootstrapAdminRpc(username, password);
       if (bootstrap?.ok) {
-        login = await rpc("app_login_json", { p_payload: { username, password } });
+        login = await loginRpc(username, password);
       }
     }
 
@@ -501,6 +501,29 @@ async function rpc(name, params) {
     throw new Error(raw);
   }
   return data;
+}
+
+async function loginRpc(username, password) {
+  try {
+    return await rpc("app_login_json", { p_payload: { username, password } });
+  } catch (e) {
+    if (!isMissingFunctionError(e)) throw e;
+    return await rpc("app_login", { p_username: username, p_password: password });
+  }
+}
+
+async function bootstrapAdminRpc(username, password) {
+  try {
+    return await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
+  } catch (e) {
+    if (!isMissingFunctionError(e)) throw e;
+    return await rpc("app_bootstrap_admin", { p_username: username, p_password: password });
+  }
+}
+
+function isMissingFunctionError(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  return msg.includes("could not find the function") || msg.includes("schema cache");
 }
 
 function withTimeout(promise, ms, label) {
