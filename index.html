@@ -25,6 +25,7 @@
           </label>
           <div class="auth-actions">
             <button class="btn btn-primary" type="submit">Entrar</button>
+            <button id="registerBtn" class="btn" type="button">Registrarse</button>
           </div>
           <p id="authMessage" class="auth-message"></p>
           <p id="appVersion" class="auth-version"></p>
@@ -110,7 +111,6 @@
         window.__showFatal(msg || "Promise rechazada sin detalle");
       });
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="./app.js"></script>
   </body>
 </html>

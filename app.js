@@ -1,17 +1,10 @@
-const APP_VERSION = "2026-03-09.6";
-const SUPABASE_URL = "https://xjxscoqtnmlbxmetcpod.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
-
-const SESSION_KEY = "vanaco_session_token_v1";
+const APP_VERSION = "2026-03-09.7";
 const ROW_LOAD_LIMIT = 500;
-const REQUEST_TIMEOUT_MS = 12000;
 const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = ["NAME", "WORK", "STATUS", "PAYMENT STATUS", "PRICE PER UNIT", "QUANTITY", "SALARY", "DATE", "HOW TO"];
 
 const state = {
-  token: localStorage.getItem(SESSION_KEY) || "",
   user: null,
   rows: [],
   headers: [...DEFAULT_HEADERS],
@@ -25,6 +18,7 @@ const el = {
   authGate: document.getElementById("authGate"),
   appShell: document.getElementById("appShell"),
   loginForm: document.getElementById("loginForm"),
+  registerBtn: document.getElementById("registerBtn"),
   usernameInput: document.getElementById("usernameInput"),
   passwordInput: document.getElementById("passwordInput"),
   authMessage: document.getElementById("authMessage"),
@@ -52,8 +46,6 @@ const el = {
   createUserBtn: document.getElementById("createUserBtn"),
 };
 
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
 init().catch((e) => {
   setAuthMessage(`Error init: ${e.message || e}`, "error");
 });
@@ -61,16 +53,13 @@ init().catch((e) => {
 async function init() {
   el.appVersion.textContent = `Build ${APP_VERSION}`;
   bindEvents();
-  setAuthMessage("Introduce usuario y contraseña para entrar.", "info");
+  setAuthMessage("Introduce usuario y contraseña.", "info");
 
-  if (state.token) {
-    const me = await safeMe();
-    if (me?.ok) {
-      state.user = me.user;
-      await enterDashboard();
-      return;
-    }
-    clearSession();
+  const session = await apiGet("/api/session");
+  if (session?.loggedIn && session.user) {
+    state.user = session.user;
+    await enterDashboard();
+    return;
   }
 
   showAuth();
@@ -78,6 +67,7 @@ async function init() {
 
 function bindEvents() {
   el.loginForm.addEventListener("submit", onLogin);
+  el.registerBtn.addEventListener("click", onRegister);
   el.logoutBtn.addEventListener("click", onLogout);
 
   el.searchInput.addEventListener("input", (e) => {
@@ -118,34 +108,38 @@ async function onLogin(event) {
       return;
     }
 
-    let login = await loginRpc(username, password);
+    const data = await apiPost("/auth/login", { username, password });
+    state.user = data.user;
+    await enterDashboard();
+  });
+}
 
-    // Bootstrap admin automático: si falla login, intenta crear admin inicial.
-    if (!login?.ok) {
-      const bootstrap = await bootstrapAdminRpc(username, password);
-      if (bootstrap?.ok) {
-        login = await loginRpc(username, password);
-      }
-    }
+async function onRegister() {
+  if (state.busy) return;
 
-    if (!login?.ok) {
-      setAuthMessage(login?.error || "Credenciales inválidas.", "error");
+  await runBusy(async () => {
+    const username = el.usernameInput.value.trim().toLowerCase();
+    const password = el.passwordInput.value;
+    if (!username || !password) {
+      setAuthMessage("Rellena usuario y contraseña.", "error");
       return;
     }
 
-    state.token = login.token;
-    state.user = login.user;
-    localStorage.setItem(SESSION_KEY, state.token);
-    await enterDashboard();
+    const data = await apiPost("/auth/register", { username, password });
+    if (data.user) {
+      state.user = data.user;
+      await enterDashboard();
+      return;
+    }
+
+    setAuthMessage(data.message || "Usuario registrado. Espera aprobación del admin.", "success");
   });
 }
 
 async function onLogout() {
   await runBusy(async () => {
-    if (state.token) {
-      await rpc("app_logout", { p_token: state.token });
-    }
-    clearSession();
+    await apiGet("/auth/logout");
+    state.user = null;
     showAuth();
     setAuthMessage("Sesión cerrada.", "info");
   });
@@ -159,32 +153,22 @@ async function enterDashboard() {
   el.adminPanel.classList.toggle("hidden", !state.user.is_admin);
 
   await loadRows();
-
   if (state.user.is_admin) {
     await loadMembers();
   }
 }
 
-async function safeMe() {
-  try {
-    return await rpc("app_me", { p_token: state.token });
-  } catch {
-    return null;
-  }
-}
-
 async function loadRows() {
-  const rows = await rpc("app_get_entries", { p_token: state.token, p_limit: ROW_LOAD_LIMIT });
+  const payload = await apiGet(`/api/entries?limit=${ROW_LOAD_LIMIT}`);
+  const rows = payload?.rows || [];
   state.rows = Array.isArray(rows) ? rows.map((r) => ({ id: r.id, data: r.data || {} })) : [];
   state.headers = inferHeaders(state.rows);
 
   if (state.user.is_admin && state.rows.length === 0) {
     const seed = await loadInitialDatasetRows();
     if (seed.length) {
-      const result = await rpc("app_replace_entries", { p_token: state.token, p_rows: seed });
-      if (result?.ok) {
-        return loadRows();
-      }
+      await apiPost("/api/entries/replace", { rows: seed });
+      return loadRows();
     }
   }
 
@@ -221,8 +205,7 @@ function renderEntryForm() {
       const form = new FormData(el.newEntryForm);
       const row = {};
       state.headers.forEach((h) => (row[h] = String(form.get(h) || "").trim()));
-      const res = await rpc("app_create_entry", { p_token: state.token, p_data: row });
-      if (!res?.ok) throw new Error(res?.error || "No se pudo crear");
+      await apiPost("/api/entries", { data: row });
       await loadRows();
       el.newEntryForm.reset();
     });
@@ -243,8 +226,7 @@ async function onFileUpload(event) {
     if (!rows.length) throw new Error("Archivo sin filas válidas");
     const ok = confirm("Esto reemplazará todos los datos. ¿Continuar?");
     if (!ok) return;
-    const result = await rpc("app_replace_entries", { p_token: state.token, p_rows: rows });
-    if (!result?.ok) throw new Error(result?.error || "No se pudo importar");
+    await apiPost("/api/entries/replace", { rows });
     await loadRows();
   });
 
@@ -281,8 +263,7 @@ function renderTable() {
         input.addEventListener("change", async (e) => {
           await runBusy(async () => {
             rowObj.data[h] = e.target.value;
-            const res = await rpc("app_update_entry", { p_token: state.token, p_id: rowObj.id, p_data: rowObj.data });
-            if (!res?.ok) throw new Error(res?.error || "No se pudo editar");
+            await apiPut(`/api/entries/${rowObj.id}`, { data: rowObj.data });
           });
         });
         td.appendChild(input);
@@ -300,8 +281,7 @@ function renderTable() {
       del.textContent = "Eliminar";
       del.addEventListener("click", async () => {
         await runBusy(async () => {
-          const res = await rpc("app_delete_entry", { p_token: state.token, p_id: rowObj.id });
-          if (!res?.ok) throw new Error(res?.error || "No se pudo eliminar");
+          await apiDelete(`/api/entries/${rowObj.id}`);
           await loadRows();
         });
       });
@@ -313,10 +293,11 @@ function renderTable() {
 }
 
 async function loadMembers() {
-  const users = await rpc("app_list_users", { p_token: state.token });
+  const data = await apiGet("/api/admin/users");
+  const users = data?.users || [];
   el.membersTbody.innerHTML = "";
 
-  (users || []).forEach((u) => {
+  users.forEach((u) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(u.username)}</td>
@@ -332,14 +313,10 @@ async function loadMembers() {
     toggleRole.textContent = u.is_admin ? "Quitar admin" : "Hacer admin";
     toggleRole.addEventListener("click", async () => {
       await runBusy(async () => {
-        const res = await rpc("app_update_user", {
-          p_token: state.token,
-          p_user_id: u.id,
-          p_is_admin: !u.is_admin,
-          p_is_active: u.is_active,
-          p_new_password: null,
+        await apiPatch(`/api/admin/users/${u.id}`, {
+          is_admin: !u.is_admin,
+          is_active: u.is_active,
         });
-        if (!res?.ok) throw new Error(res?.error || "No se pudo cambiar rol");
         await loadMembers();
       });
     });
@@ -349,14 +326,10 @@ async function loadMembers() {
     toggleActive.textContent = u.is_active ? "Bloquear" : "Activar";
     toggleActive.addEventListener("click", async () => {
       await runBusy(async () => {
-        const res = await rpc("app_update_user", {
-          p_token: state.token,
-          p_user_id: u.id,
-          p_is_admin: u.is_admin,
-          p_is_active: !u.is_active,
-          p_new_password: null,
+        await apiPatch(`/api/admin/users/${u.id}`, {
+          is_admin: u.is_admin,
+          is_active: !u.is_active,
         });
-        if (!res?.ok) throw new Error(res?.error || "No se pudo cambiar estado");
         await loadMembers();
       });
     });
@@ -377,15 +350,12 @@ async function onCreateUser() {
       throw new Error("Usuario obligatorio y contraseña >= 6");
     }
 
-    const res = await rpc("app_create_user", {
-      p_token: state.token,
-      p_username: username,
-      p_password: password,
-      p_is_admin: isAdmin,
-      p_is_active: true,
+    await apiPost("/api/admin/users", {
+      username,
+      password,
+      is_admin: isAdmin,
+      is_active: true,
     });
-
-    if (!res?.ok) throw new Error(res?.error || "No se pudo crear usuario");
 
     el.newUserInput.value = "";
     el.newUserPassInput.value = "";
@@ -467,12 +437,6 @@ function setAuthMessage(message, tone = "info") {
   else el.authMessage.style.color = "var(--muted)";
 }
 
-function clearSession() {
-  state.token = "";
-  state.user = null;
-  localStorage.removeItem(SESSION_KEY);
-}
-
 async function runBusy(fn) {
   if (state.busy) return;
   state.busy = true;
@@ -487,50 +451,39 @@ async function runBusy(fn) {
   }
 }
 
-async function rpc(name, params) {
-  const call = params === undefined ? sb.rpc(name) : sb.rpc(name, params);
-  const { data, error } = await withTimeout(call, REQUEST_TIMEOUT_MS, name);
-  if (error) {
-    const raw = error.message || `RPC ${name} falló`;
-    const lower = raw.toLowerCase();
-    if (lower.includes("schema cache") || lower.includes("could not find the function")) {
-      throw new Error(
-        `Falta sincronizar SQL en Supabase para la función ${name}. Ejecuta COMPLETO supabase-setup.sql en SQL Editor (Run), espera 20s y recarga la web. Error original: ${raw}`
-      );
-    }
-    throw new Error(raw);
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+
+  const isJson = (response.headers.get("content-type") || "").includes("application/json");
+  const data = isJson ? await response.json() : null;
+  if (!response.ok) {
+    throw new Error((data && (data.error || data.message)) || `HTTP ${response.status}`);
   }
   return data;
 }
 
-async function loginRpc(username, password) {
-  try {
-    return await rpc("app_login_json", { p_payload: { username, password } });
-  } catch (e) {
-    if (!isMissingFunctionError(e)) throw e;
-    return await rpc("app_login", { p_password: password, p_username: username });
-  }
+function apiGet(path) {
+  return api(path, { method: "GET" });
 }
 
-async function bootstrapAdminRpc(username, password) {
-  try {
-    return await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
-  } catch (e) {
-    if (!isMissingFunctionError(e)) throw e;
-    return await rpc("app_bootstrap_admin", { p_password: password, p_username: username });
-  }
+function apiPost(path, body) {
+  return api(path, { method: "POST", body: JSON.stringify(body || {}) });
 }
 
-function isMissingFunctionError(error) {
-  const msg = String(error?.message || "").toLowerCase();
-  return msg.includes("could not find the function") || msg.includes("schema cache");
+function apiPut(path, body) {
+  return api(path, { method: "PUT", body: JSON.stringify(body || {}) });
 }
 
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout en ${label}`)), ms)),
-  ]);
+function apiPatch(path, body) {
+  return api(path, { method: "PATCH", body: JSON.stringify(body || {}) });
+}
+
+function apiDelete(path) {
+  return api(path, { method: "DELETE" });
 }
 
 function readTextFile(file) {
