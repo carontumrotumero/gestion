@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
@@ -31,11 +31,11 @@
 
           <div class="auth-actions">
             <button class="btn btn-primary" type="submit">Entrar</button>
-            <button id="registerBtn" class="btn" type="button">Registrarse</button>
+            <button id="registerBtn" class="btn" type="button">Solicitar acceso</button>
           </div>
+
           <p id="authMessage" class="auth-message"></p>
           <p id="appVersion" class="auth-version"></p>
-          <pre id="debugLog" class="auth-debug"></pre>
         </form>
       </article>
     </section>
@@ -44,7 +44,7 @@
       <header class="hero">
         <div>
           <h1>Vanaco Working Force</h1>
-          <p>Gestión de trabajos, pagos y seguimiento del equipo.</p>
+          <p id="roleSummary">Gestión de trabajos, pagos y seguimiento del equipo.</p>
         </div>
         <div class="hero-actions">
           <span id="userBadge"></span>
@@ -53,6 +53,13 @@
       </header>
 
       <main class="layout">
+        <section id="approvalNotice" class="panel hidden"></section>
+
+        <section id="entryBar" class="panel entry-bar hidden">
+          <h2>Nueva entrada</h2>
+          <form id="newEntryForm" class="entry-grid"></form>
+        </section>
+
         <section class="panel controls">
           <div class="controls-row">
             <label class="field">
@@ -78,9 +85,8 @@
           <div class="controls-row actions">
             <button id="loadCsvBtn" class="btn">Importar archivo</button>
             <input id="csvInput" type="file" accept=".csv,.html,.htm" hidden />
-            <button id="addRowBtn" class="btn">Añadir fila</button>
             <button id="downloadBtn" class="btn btn-primary">Exportar CSV</button>
-            <button id="resetBtn" class="btn btn-danger">Recargar nube</button>
+            <button id="resetBtn" class="btn">Recargar nube</button>
           </div>
         </section>
 
@@ -95,9 +101,22 @@
           </div>
         </section>
 
-        <section class="panel form-panel">
-          <h2>Nueva entrada</h2>
-          <form id="newEntryForm"></form>
+        <section id="adminPanel" class="panel hidden">
+          <h2>Panel Admin</h2>
+          <p>Aprueba usuarios y define rol admin/viewer.</p>
+          <div class="table-wrap">
+            <table id="membersTable">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </main>
     </div>
@@ -105,9 +124,7 @@
     <script>
       window.__showFatal = function (message) {
         var authMessage = document.getElementById("authMessage");
-        var debugLog = document.getElementById("debugLog");
         if (authMessage) authMessage.textContent = "Error JS: " + message;
-        if (debugLog) debugLog.textContent = (debugLog.textContent ? debugLog.textContent + "\n" : "") + "[FATAL] " + message;
       };
       window.addEventListener("error", function (ev) {
         window.__showFatal(ev.message || "Error desconocido");
@@ -121,6 +138,6 @@
       src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
       onerror="window.__showFatal('No se pudo cargar supabase-js desde CDN')"
     ></script>
-    <script src="./app.js" onerror="window.__showFatal('No se pudo cargar app.js (revisa deploy en Vercel)')"></script>
+    <script src="./app.js" onerror="window.__showFatal('No se pudo cargar app.js')"></script>
   </body>
 </html>
