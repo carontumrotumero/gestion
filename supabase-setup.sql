@@ -107,7 +107,7 @@ as $$
   select exists(select 1 from public.app_users);
 $$;
 
-create or replace function public.app_bootstrap_admin(p_username text, p_password text)
+create or replace function public.app_bootstrap_admin(p_password text, p_username text)
 returns jsonb
 language plpgsql
 security definer
@@ -137,12 +137,12 @@ security definer
 set search_path = public
 as $$
   select public.app_bootstrap_admin(
-    p_payload ->> 'username',
-    p_payload ->> 'password'
+    p_payload ->> 'password',
+    p_payload ->> 'username'
   );
 $$;
 
-create or replace function public.app_login(p_username text, p_password text)
+create or replace function public.app_login(p_password text, p_username text)
 returns jsonb
 language plpgsql
 security definer
@@ -193,8 +193,8 @@ security definer
 set search_path = public
 as $$
   select public.app_login(
-    p_payload ->> 'username',
-    p_payload ->> 'password'
+    p_payload ->> 'password',
+    p_payload ->> 'username'
   );
 $$;
 

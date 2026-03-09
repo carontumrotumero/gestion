@@ -10,9 +10,9 @@ with required_tables(name) as (
 required_functions(signature) as (
   values
     ('app_has_users()'),
-    ('app_bootstrap_admin(p_username text, p_password text)'),
+    ('app_bootstrap_admin(p_password text, p_username text)'),
     ('app_bootstrap_admin_json(p_payload jsonb)'),
-    ('app_login(p_username text, p_password text)'),
+    ('app_login(p_password text, p_username text)'),
     ('app_login_json(p_payload jsonb)'),
     ('app_logout(p_token text)'),
     ('app_me(p_token text)'),
@@ -73,9 +73,9 @@ with required_tables(name) as (
 required_functions(signature) as (
   values
     ('app_has_users()'),
-    ('app_bootstrap_admin(p_username text, p_password text)'),
+    ('app_bootstrap_admin(p_password text, p_username text)'),
     ('app_bootstrap_admin_json(p_payload jsonb)'),
-    ('app_login(p_username text, p_password text)'),
+    ('app_login(p_password text, p_username text)'),
     ('app_login_json(p_payload jsonb)'),
     ('app_logout(p_token text)'),
     ('app_me(p_token text)'),

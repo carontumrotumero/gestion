@@ -1,4 +1,4 @@
-const APP_VERSION = "2026-03-09.5";
+const APP_VERSION = "2026-03-09.6";
 const SUPABASE_URL = "https://xjxscoqtnmlbxmetcpod.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
@@ -508,7 +508,7 @@ async function loginRpc(username, password) {
     return await rpc("app_login_json", { p_payload: { username, password } });
   } catch (e) {
     if (!isMissingFunctionError(e)) throw e;
-    return await rpc("app_login", { p_username: username, p_password: password });
+    return await rpc("app_login", { p_password: password, p_username: username });
   }
 }
 
@@ -517,7 +517,7 @@ async function bootstrapAdminRpc(username, password) {
     return await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
   } catch (e) {
     if (!isMissingFunctionError(e)) throw e;
-    return await rpc("app_bootstrap_admin", { p_username: username, p_password: password });
+    return await rpc("app_bootstrap_admin", { p_password: password, p_username: username });
   }
 }
 
