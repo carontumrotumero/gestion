@@ -7,6 +7,9 @@ create table if not exists public.workforce_entries (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists idx_workforce_entries_created_at
+on public.workforce_entries (created_at desc);
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql

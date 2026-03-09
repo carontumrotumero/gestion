@@ -5,6 +5,7 @@ const SUPABASE_ANON_KEY =
 
 const TABLE_NAME = "workforce_entries";
 const ROW_LOAD_LIMIT = 500;
+const REQUEST_TIMEOUT_MS = 12000;
 const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = [
@@ -65,6 +66,7 @@ boot().catch((error) => {
 });
 
 async function boot() {
+  if (elements.debugLog) elements.debugLog.textContent = "";
   appLog("Boot iniciado");
   if (elements.appVersion) {
     elements.appVersion.textContent = `Build ${APP_VERSION}`;
@@ -97,7 +99,7 @@ async function bootstrapSession() {
   const {
     data: { session },
     error: sessionError,
-  } = await sbClient.auth.getSession();
+  } = await withTimeout(sbClient.auth.getSession(), REQUEST_TIMEOUT_MS, "getSession");
 
   if (sessionError) {
     appLog(`Error getSession: ${mapAuthError(sessionError)}`);
@@ -123,7 +125,7 @@ function wireEvents() {
 
   elements.logoutBtn.addEventListener("click", async () => {
     await runBusy(async () => {
-      const { error } = await sbClient.auth.signOut();
+      const { error } = await withTimeout(sbClient.auth.signOut(), REQUEST_TIMEOUT_MS, "signOut");
       if (error) throw error;
       state.session = null;
       showAuth();
@@ -199,7 +201,11 @@ async function onLogin(event) {
       return;
     }
 
-    const { data, error } = await sbClient.auth.signInWithPassword({ email, password });
+    const { data, error } = await withTimeout(
+      sbClient.auth.signInWithPassword({ email, password }),
+      REQUEST_TIMEOUT_MS,
+      "signInWithPassword"
+    );
     if (error) {
       appLog(`Login error: ${mapAuthError(error)}`);
       setAuthMessage(mapAuthError(error), "error");
@@ -220,6 +226,12 @@ async function onLogin(event) {
 
 async function onRegister() {
   await runBusy(async () => {
+    if (state.session) {
+      appLog("Registro cancelado: ya hay sesión activa");
+      setAuthMessage("Ya hay una sesión activa. Usa Cerrar sesión para crear otra cuenta.", "info");
+      return;
+    }
+
     appLog("Click Registrarse");
     setAuthMessage("Creando cuenta...", "info");
 
@@ -232,7 +244,11 @@ async function onRegister() {
       return;
     }
 
-    const { data, error } = await sbClient.auth.signUp({ email, password });
+    const { data, error } = await withTimeout(
+      sbClient.auth.signUp({ email, password }),
+      REQUEST_TIMEOUT_MS,
+      "signUp"
+    );
     if (error) {
       appLog(`Registro error: ${mapAuthError(error)}`);
       setAuthMessage(mapAuthError(error), "error");
@@ -246,7 +262,11 @@ async function onRegister() {
       return;
     }
 
-    const loginAttempt = await sbClient.auth.signInWithPassword({ email, password });
+    const loginAttempt = await withTimeout(
+      sbClient.auth.signInWithPassword({ email, password }),
+      REQUEST_TIMEOUT_MS,
+      "signInAfterSignUp"
+    );
     if (!loginAttempt.error && loginAttempt.data.session) {
       appLog("Registro OK + login automático OK");
       await showAppForSession(loginAttempt.data.session);
@@ -269,6 +289,7 @@ function showAuth() {
 
 async function showAppForSession(session) {
   appLog(`Entrando a dashboard: ${session?.user?.email || "sin email"}`);
+  setAuthMessage("Abriendo dashboard...", "info");
   elements.authGate.classList.add("hidden");
   elements.appShell.classList.remove("hidden");
   elements.userBadge.textContent = session?.user?.email || "Usuario";
@@ -277,11 +298,11 @@ async function showAppForSession(session) {
 
 async function loadRemoteRows() {
   appLog("Cargando filas remotas...");
-  const { data, error } = await sbClient
-    .from(TABLE_NAME)
-    .select("id,data,created_at")
-    .order("created_at", { ascending: false })
-    .limit(ROW_LOAD_LIMIT);
+  const { data, error } = await withTimeout(
+    sbClient.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false }).limit(ROW_LOAD_LIMIT),
+    REQUEST_TIMEOUT_MS,
+    "loadRemoteRows"
+  );
 
   if (error) {
     appLog(`Error leyendo filas: ${mapDbError(error)}`);
@@ -293,11 +314,11 @@ async function loadRemoteRows() {
     if (seedRows.length > 0) {
       appLog(`Tabla vacía, insertando semilla: ${seedRows.length} filas`);
       await insertRows(seedRows);
-      const reload = await sbClient
-        .from(TABLE_NAME)
-        .select("id,data,created_at")
-        .order("created_at", { ascending: false })
-        .limit(ROW_LOAD_LIMIT);
+      const reload = await withTimeout(
+        sbClient.from(TABLE_NAME).select("id,data,created_at").order("created_at", { ascending: false }).limit(ROW_LOAD_LIMIT),
+        REQUEST_TIMEOUT_MS,
+        "reloadAfterSeed"
+      );
       if (reload.error) {
         appLog(`Error recarga tras semilla: ${mapDbError(reload.error)}`);
         throw new Error(`Insertó semilla pero no pudo recargar: ${mapDbError(reload.error)}`);
@@ -358,7 +379,7 @@ async function insertRows(rowsData) {
   const chunkSize = 200;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
-    const { error } = await sbClient.from(TABLE_NAME).insert(chunk);
+    const { error } = await withTimeout(sbClient.from(TABLE_NAME).insert(chunk), REQUEST_TIMEOUT_MS, `insertChunk:${i}`);
     if (error) {
       throw new Error(`Error insertando bloque ${i / chunkSize + 1}: ${mapDbError(error)}`);
     }
@@ -366,7 +387,11 @@ async function insertRows(rowsData) {
 }
 
 async function createRow(rowData) {
-  const { data, error } = await sbClient.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data").single();
+  const { data, error } = await withTimeout(
+    sbClient.from(TABLE_NAME).insert([{ data: rowData }]).select("id,data").single(),
+    REQUEST_TIMEOUT_MS,
+    "createRow"
+  );
   if (error) {
     throw new Error(`No se pudo crear la fila: ${mapDbError(error)}`);
   }
@@ -377,14 +402,22 @@ async function createRow(rowData) {
 }
 
 async function updateRow(rowId, rowData) {
-  const { error } = await sbClient.from(TABLE_NAME).update({ data: rowData }).eq("id", rowId);
+  const { error } = await withTimeout(
+    sbClient.from(TABLE_NAME).update({ data: rowData }).eq("id", rowId),
+    REQUEST_TIMEOUT_MS,
+    "updateRow"
+  );
   if (error) {
     throw new Error(`No se pudo guardar edición: ${mapDbError(error)}`);
   }
 }
 
 async function deleteRow(rowId) {
-  const { error } = await sbClient.from(TABLE_NAME).delete().eq("id", rowId);
+  const { error } = await withTimeout(
+    sbClient.from(TABLE_NAME).delete().eq("id", rowId),
+    REQUEST_TIMEOUT_MS,
+    "deleteRow"
+  );
   if (error) {
     throw new Error(`No se pudo eliminar fila: ${mapDbError(error)}`);
   }
@@ -905,4 +938,13 @@ function appLog(message) {
     elements.debugLog.textContent = next;
     elements.debugLog.scrollTop = elements.debugLog.scrollHeight;
   }
+}
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout en ${label} tras ${ms / 1000}s`)), ms)
+    ),
+  ]);
 }
