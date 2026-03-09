@@ -122,14 +122,14 @@ async function onLogin(event) {
       return;
     }
 
-    let login = await rpc("app_login", { p_username: username, p_password: password });
+    let login = await rpc("app_login_json", { p_payload: { username, password } });
 
     // Bootstrap admin automático si no existen usuarios.
     if (!login?.ok) {
       const hasUsers = await rpc("app_has_users");
       if (!hasUsers) {
-        await rpc("app_bootstrap_admin", { p_username: username, p_password: password });
-        login = await rpc("app_login", { p_username: username, p_password: password });
+        await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
+        login = await rpc("app_login_json", { p_payload: { username, password } });
       }
     }
 
@@ -495,7 +495,16 @@ async function runBusy(fn) {
 async function rpc(name, params) {
   const call = params === undefined ? sb.rpc(name) : sb.rpc(name, params);
   const { data, error } = await withTimeout(call, REQUEST_TIMEOUT_MS, name);
-  if (error) throw new Error(error.message || `RPC ${name} falló`);
+  if (error) {
+    const raw = error.message || `RPC ${name} falló`;
+    const lower = raw.toLowerCase();
+    if (lower.includes("schema cache") || lower.includes("could not find the function")) {
+      throw new Error(
+        `Falta sincronizar SQL en Supabase para la función ${name}. Ejecuta COMPLETO supabase-setup.sql en SQL Editor (Run), espera 20s y recarga la web. Error original: ${raw}`
+      );
+    }
+    throw new Error(raw);
+  }
   return data;
 }
 

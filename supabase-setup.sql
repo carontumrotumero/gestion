@@ -136,6 +136,18 @@ begin
 end;
 $$;
 
+create or replace function public.app_bootstrap_admin_json(p_payload jsonb)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select public.app_bootstrap_admin(
+    p_payload ->> 'username',
+    p_payload ->> 'password'
+  );
+$$;
+
 create or replace function public.app_login(p_username text, p_password text)
 returns jsonb
 language plpgsql
@@ -177,6 +189,18 @@ begin
     )
   );
 end;
+$$;
+
+create or replace function public.app_login_json(p_payload jsonb)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select public.app_login(
+    p_payload ->> 'username',
+    p_payload ->> 'password'
+  );
 $$;
 
 create or replace function public.app_logout(p_token text)
@@ -450,7 +474,9 @@ $$;
 grant usage on schema public to anon, authenticated;
 grant execute on function public.app_has_users() to anon, authenticated;
 grant execute on function public.app_bootstrap_admin(text, text) to anon, authenticated;
+grant execute on function public.app_bootstrap_admin_json(jsonb) to anon, authenticated;
 grant execute on function public.app_login(text, text) to anon, authenticated;
+grant execute on function public.app_login_json(jsonb) to anon, authenticated;
 grant execute on function public.app_logout(text) to anon, authenticated;
 grant execute on function public.app_me(text) to anon, authenticated;
 grant execute on function public.app_get_entries(text, int) to anon, authenticated;
