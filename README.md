@@ -6,6 +6,7 @@ Gestión privada con Supabase, control de acceso por aprobación y roles (`admin
 
 1. Abre SQL Editor y ejecuta:
    - [supabase-setup.sql](/Users/rotumerorontum/Documents/Pagina%20gestion/supabase-setup.sql)
+   - Es versión segura (sin borrar datos existentes).
 2. En `Authentication > Providers > Email`:
    - `Enable email signups`: ON
 3. En `Authentication > Email`:
