@@ -62,7 +62,7 @@ async function init() {
   el.appVersion.textContent = `Build ${APP_VERSION}`;
   bindEvents();
 
-  const hasUsers = await rpc("app_has_users", {});
+  const hasUsers = await rpc("app_has_users");
   if (!hasUsers) {
     setAuthMessage("No hay usuarios. Crea admin inicial con usuario+contraseña y pulsa Entrar.", "info");
   }
@@ -126,7 +126,7 @@ async function onLogin(event) {
 
     // Bootstrap admin automático si no existen usuarios.
     if (!login?.ok) {
-      const hasUsers = await rpc("app_has_users", {});
+      const hasUsers = await rpc("app_has_users");
       if (!hasUsers) {
         await rpc("app_bootstrap_admin", { p_username: username, p_password: password });
         login = await rpc("app_login", { p_username: username, p_password: password });
@@ -493,7 +493,8 @@ async function runBusy(fn) {
 }
 
 async function rpc(name, params) {
-  const { data, error } = await withTimeout(sb.rpc(name, params || {}), REQUEST_TIMEOUT_MS, name);
+  const call = params === undefined ? sb.rpc(name) : sb.rpc(name, params);
+  const { data, error } = await withTimeout(call, REQUEST_TIMEOUT_MS, name);
   if (error) throw new Error(error.message || `RPC ${name} falló`);
   return data;
 }
