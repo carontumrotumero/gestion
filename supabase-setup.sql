@@ -6,9 +6,13 @@ create extension if not exists "pgcrypto";
 create table if not exists public.workforce_entries (
   id uuid primary key default gen_random_uuid(),
   data jsonb not null default '{}'::jsonb,
+  is_deleted boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.workforce_entries
+add column if not exists is_deleted boolean not null default false;
 
 create index if not exists idx_workforce_entries_created_at
 on public.workforce_entries (created_at desc);
@@ -25,7 +29,7 @@ create table if not exists public.app_users (
 
 create table if not exists public.app_sessions (
   token text primary key,
-  user_id uuid not null references public.app_users(id) on delete cascade,
+  user_id uuid not null references public.app_users(id),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null
 );
@@ -78,16 +82,6 @@ alter table public.app_users enable row level security;
 alter table public.app_sessions enable row level security;
 
 -- Sin políticas: acceso directo bloqueado para anon/authenticated.
-
-do $$
-begin
-  if exists (
-    select 1 from information_schema.routines
-    where routine_schema = 'public' and routine_name = 'app_hash_password'
-  ) then
-    drop function public.app_hash_password(text);
-  end if;
-end $$;
 
 create or replace function public.app_user_from_token(p_token text)
 returns public.app_users
@@ -169,7 +163,8 @@ begin
     return jsonb_build_object('ok', false, 'error', 'Credenciales inválidas.');
   end if;
 
-  delete from public.app_sessions
+  update public.app_sessions
+  set expires_at = now()
   where user_id = v_user.id
     and expires_at < now();
 
@@ -210,7 +205,9 @@ security definer
 set search_path = public
 as $$
 begin
-  delete from public.app_sessions where token = p_token;
+  update public.app_sessions
+  set expires_at = now()
+  where token = p_token;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -258,6 +255,7 @@ begin
   return query
   select e.id, e.data, e.created_at, e.updated_at
   from public.workforce_entries e
+  where e.is_deleted = false
   order by e.created_at desc
   limit greatest(1, least(coalesce(p_limit, 500), 2000));
 end;
@@ -281,8 +279,8 @@ begin
     return jsonb_build_object('ok', false, 'error', 'Solo admin puede crear');
   end if;
 
-  insert into public.workforce_entries(data)
-  values (coalesce(p_data, '{}'::jsonb))
+  insert into public.workforce_entries(data, is_deleted)
+  values (coalesce(p_data, '{}'::jsonb), false)
   returning id into v_id;
 
   return jsonb_build_object('ok', true, 'id', v_id);
@@ -308,7 +306,8 @@ begin
 
   update public.workforce_entries
   set data = coalesce(p_data, '{}'::jsonb)
-  where id = p_id;
+  where id = p_id
+    and is_deleted = false;
 
   return jsonb_build_object('ok', true);
 end;
@@ -331,7 +330,9 @@ begin
     return jsonb_build_object('ok', false, 'error', 'Solo admin puede eliminar');
   end if;
 
-  delete from public.workforce_entries where id = p_id;
+  update public.workforce_entries
+  set is_deleted = true
+  where id = p_id;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -354,13 +355,15 @@ begin
     return jsonb_build_object('ok', false, 'error', 'Solo admin puede importar');
   end if;
 
-  delete from public.workforce_entries;
+  update public.workforce_entries
+  set is_deleted = true
+  where is_deleted = false;
 
   if jsonb_typeof(p_rows) = 'array' then
     for v_item in select * from jsonb_array_elements(p_rows)
     loop
-      insert into public.workforce_entries(data)
-      values (coalesce(v_item, '{}'::jsonb));
+      insert into public.workforce_entries(data, is_deleted)
+      values (coalesce(v_item, '{}'::jsonb), false);
     end loop;
   end if;
 
@@ -464,7 +467,10 @@ begin
       end
   where id = p_user_id;
 
-  delete from public.app_sessions where user_id = p_user_id and expires_at < now();
+  update public.app_sessions
+  set expires_at = now()
+  where user_id = p_user_id
+    and expires_at > now();
 
   return jsonb_build_object('ok', true);
 end;
