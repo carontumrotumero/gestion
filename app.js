@@ -1,4 +1,4 @@
-const APP_VERSION = "2026-03-09.3";
+const APP_VERSION = "2026-03-09.4";
 const SUPABASE_URL = "https://xjxscoqtnmlbxmetcpod.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
@@ -61,11 +61,7 @@ init().catch((e) => {
 async function init() {
   el.appVersion.textContent = `Build ${APP_VERSION}`;
   bindEvents();
-
-  const hasUsers = await rpc("app_has_users");
-  if (!hasUsers) {
-    setAuthMessage("No hay usuarios. Crea admin inicial con usuario+contraseña y pulsa Entrar.", "info");
-  }
+  setAuthMessage("Introduce usuario y contraseña para entrar.", "info");
 
   if (state.token) {
     const me = await safeMe();
@@ -124,11 +120,10 @@ async function onLogin(event) {
 
     let login = await rpc("app_login_json", { p_payload: { username, password } });
 
-    // Bootstrap admin automático si no existen usuarios.
+    // Bootstrap admin automático: si falla login, intenta crear admin inicial.
     if (!login?.ok) {
-      const hasUsers = await rpc("app_has_users");
-      if (!hasUsers) {
-        await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
+      const bootstrap = await rpc("app_bootstrap_admin_json", { p_payload: { username, password } });
+      if (bootstrap?.ok) {
         login = await rpc("app_login_json", { p_payload: { username, password } });
       }
     }
