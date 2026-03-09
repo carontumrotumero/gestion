@@ -291,6 +291,20 @@ td.actions-cell {
   color: #4d5a61;
 }
 
+.admin-create {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.admin-create label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
 .badge-ok {
   color: #19683a;
   font-weight: 700;
@@ -313,5 +327,9 @@ td.actions-cell {
 
   td input {
     min-width: 120px;
+  }
+
+  .admin-create {
+    grid-template-columns: 1fr;
   }
 }

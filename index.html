@@ -6,34 +6,26 @@
     <title>Vanaco Working Force</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <section id="authGate" class="auth-shell">
       <article class="auth-card">
         <h1>Vanaco Working Force</h1>
-        <p>Acceso privado del equipo</p>
-
+        <p>Acceso por usuario y contraseña</p>
         <form id="loginForm" class="auth-form">
           <label class="field">
-            <span>Email</span>
-            <input id="emailInput" type="email" required placeholder="equipo@vanaco.com" />
+            <span>Usuario</span>
+            <input id="usernameInput" type="text" required placeholder="admin" />
           </label>
-
           <label class="field">
             <span>Contraseña</span>
             <input id="passwordInput" type="password" required placeholder="********" />
           </label>
-
           <div class="auth-actions">
             <button class="btn btn-primary" type="submit">Entrar</button>
-            <button id="registerBtn" class="btn" type="button">Solicitar acceso</button>
           </div>
-
           <p id="authMessage" class="auth-message"></p>
           <p id="appVersion" class="auth-version"></p>
         </form>
@@ -44,7 +36,7 @@
       <header class="hero">
         <div>
           <h1>Vanaco Working Force</h1>
-          <p id="roleSummary">Gestión de trabajos, pagos y seguimiento del equipo.</p>
+          <p id="roleSummary">Panel de gestión</p>
         </div>
         <div class="hero-actions">
           <span id="userBadge"></span>
@@ -53,8 +45,6 @@
       </header>
 
       <main class="layout">
-        <section id="approvalNotice" class="panel hidden"></section>
-
         <section id="entryBar" class="panel entry-bar hidden">
           <h2>Nueva entrada</h2>
           <form id="newEntryForm" class="entry-grid"></form>
@@ -66,22 +56,15 @@
               <span>Buscar</span>
               <input id="searchInput" type="text" placeholder="Nombre, trabajo, estado..." />
             </label>
-
             <label class="field">
               <span>Filtro Estado</span>
-              <select id="statusFilter">
-                <option value="">Todos</option>
-              </select>
+              <select id="statusFilter"><option value="">Todos</option></select>
             </label>
-
             <label class="field">
               <span>Filtro Pago</span>
-              <select id="paymentFilter">
-                <option value="">Todos</option>
-              </select>
+              <select id="paymentFilter"><option value="">Todos</option></select>
             </label>
           </div>
-
           <div class="controls-row actions">
             <button id="loadCsvBtn" class="btn">Importar archivo</button>
             <input id="csvInput" type="file" accept=".csv,.html,.htm" hidden />
@@ -94,26 +77,21 @@
 
         <section class="panel table-panel">
           <div class="table-wrap">
-            <table id="dataTable">
-              <thead></thead>
-              <tbody></tbody>
-            </table>
+            <table id="dataTable"><thead></thead><tbody></tbody></table>
           </div>
         </section>
 
         <section id="adminPanel" class="panel hidden">
           <h2>Panel Admin</h2>
-          <p>Aprueba usuarios y define rol admin/viewer.</p>
+          <div class="admin-create">
+            <input id="newUserInput" type="text" placeholder="nuevo_usuario" />
+            <input id="newUserPassInput" type="password" placeholder="contraseña" />
+            <label><input id="newUserAdminInput" type="checkbox" /> Admin</label>
+            <button id="createUserBtn" class="btn">Crear usuario</button>
+          </div>
           <div class="table-wrap">
             <table id="membersTable">
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Rol</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Usuario</th><th>Rol</th><th>Activo</th><th>Acciones</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -126,18 +104,13 @@
         var authMessage = document.getElementById("authMessage");
         if (authMessage) authMessage.textContent = "Error JS: " + message;
       };
-      window.addEventListener("error", function (ev) {
-        window.__showFatal(ev.message || "Error desconocido");
-      });
+      window.addEventListener("error", function (ev) { window.__showFatal(ev.message || "Error desconocido"); });
       window.addEventListener("unhandledrejection", function (ev) {
         var msg = ev && ev.reason && (ev.reason.message || String(ev.reason));
         window.__showFatal(msg || "Promise rechazada sin detalle");
       });
     </script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
-      onerror="window.__showFatal('No se pudo cargar supabase-js desde CDN')"
-    ></script>
-    <script src="./app.js" onerror="window.__showFatal('No se pudo cargar app.js')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./app.js"></script>
   </body>
 </html>

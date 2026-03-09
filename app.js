@@ -1,51 +1,37 @@
-const APP_VERSION = "2026-03-09.2";
+const APP_VERSION = "2026-03-09.3";
 const SUPABASE_URL = "https://xjxscoqtnmlbxmetcpod.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqeHNjb3F0bm1sYnhtZXRjcG9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NzQ0MDAsImV4cCI6MjA4ODU1MDQwMH0.iAHhQriiuhp3gABsM27jI8pzMY7SP0bV8A5BrY0jWOk";
 
-const PRIMARY_ADMIN_EMAIL = "carontumrotumero@gmail.com";
-const TEAM_TABLE = "team_members";
-const DATA_TABLE = "workforce_entries";
+const SESSION_KEY = "vanaco_session_token_v1";
 const ROW_LOAD_LIMIT = 500;
 const REQUEST_TIMEOUT_MS = 12000;
 const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
-const DEFAULT_HEADERS = [
-  "NAME",
-  "WORK",
-  "STATUS",
-  "PAYMENT STATUS",
-  "PRICE PER UNIT",
-  "QUANTITY",
-  "SALARY",
-  "DATE",
-  "HOW TO",
-];
+const DEFAULT_HEADERS = ["NAME", "WORK", "STATUS", "PAYMENT STATUS", "PRICE PER UNIT", "QUANTITY", "SALARY", "DATE", "HOW TO"];
 
 const state = {
-  session: null,
-  member: null,
+  token: localStorage.getItem(SESSION_KEY) || "",
+  user: null,
   rows: [],
   headers: [...DEFAULT_HEADERS],
   search: "",
   statusFilter: "",
   paymentFilter: "",
-  isBusy: false,
+  busy: false,
 };
 
-const elements = {
+const el = {
   authGate: document.getElementById("authGate"),
   appShell: document.getElementById("appShell"),
   loginForm: document.getElementById("loginForm"),
-  emailInput: document.getElementById("emailInput"),
+  usernameInput: document.getElementById("usernameInput"),
   passwordInput: document.getElementById("passwordInput"),
-  registerBtn: document.getElementById("registerBtn"),
   authMessage: document.getElementById("authMessage"),
   appVersion: document.getElementById("appVersion"),
   roleSummary: document.getElementById("roleSummary"),
   userBadge: document.getElementById("userBadge"),
   logoutBtn: document.getElementById("logoutBtn"),
-  approvalNotice: document.getElementById("approvalNotice"),
   entryBar: document.getElementById("entryBar"),
   newEntryForm: document.getElementById("newEntryForm"),
   searchInput: document.getElementById("searchInput"),
@@ -60,268 +46,150 @@ const elements = {
   tbody: document.querySelector("#dataTable tbody"),
   adminPanel: document.getElementById("adminPanel"),
   membersTbody: document.querySelector("#membersTable tbody"),
+  newUserInput: document.getElementById("newUserInput"),
+  newUserPassInput: document.getElementById("newUserPassInput"),
+  newUserAdminInput: document.getElementById("newUserAdminInput"),
+  createUserBtn: document.getElementById("createUserBtn"),
 };
 
-let sbClient = null;
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-boot().catch((error) => {
-  console.error(error);
-  setAuthMessage(`Error de arranque: ${formatError(error)}`, "error");
+init().catch((e) => {
+  setAuthMessage(`Error init: ${e.message || e}`, "error");
 });
 
-async function boot() {
-  if (elements.appVersion) {
-    elements.appVersion.textContent = `Build ${APP_VERSION}`;
-  }
-
-  if (!window.supabase || typeof window.supabase.createClient !== "function") {
-    throw new Error("No cargó supabase-js");
-  }
-
-  sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: true,
-      flowType: "pkce",
-      storage: window.localStorage,
-    },
-  });
-
+async function init() {
+  el.appVersion.textContent = `Build ${APP_VERSION}`;
   bindEvents();
 
-  const {
-    data: { session },
-    error,
-  } = await withTimeout(sbClient.auth.getSession(), REQUEST_TIMEOUT_MS, "getSession");
-
-  if (error) {
-    setAuthMessage(mapAuthError(error), "error");
-    return;
+  const hasUsers = await rpc("app_has_users", {});
+  if (!hasUsers) {
+    setAuthMessage("No hay usuarios. Crea admin inicial con usuario+contraseña y pulsa Entrar.", "info");
   }
 
-  await handleSession(session);
+  if (state.token) {
+    const me = await safeMe();
+    if (me?.ok) {
+      state.user = me.user;
+      await enterDashboard();
+      return;
+    }
+    clearSession();
+  }
+
+  showAuth();
 }
 
 function bindEvents() {
-  elements.loginForm.addEventListener("submit", onLogin);
-  elements.registerBtn.addEventListener("click", onRegister);
+  el.loginForm.addEventListener("submit", onLogin);
+  el.logoutBtn.addEventListener("click", onLogout);
 
-  elements.logoutBtn.addEventListener("click", async () => {
-    await runBusy(async () => {
-      const { error } = await withTimeout(sbClient.auth.signOut(), REQUEST_TIMEOUT_MS, "signOut");
-      if (error) throw error;
-      await handleSession(null);
-      setAuthMessage("Sesión cerrada.", "info");
-    });
-  });
-
-  sbClient.auth.onAuthStateChange(async (_event, session) => {
-    await handleSession(session);
-  });
-
-  elements.searchInput.addEventListener("input", (e) => {
+  el.searchInput.addEventListener("input", (e) => {
     state.search = String(e.target.value || "").toLowerCase().trim();
     renderTable();
     updateStats();
   });
 
-  elements.statusFilter.addEventListener("change", (e) => {
+  el.statusFilter.addEventListener("change", (e) => {
     state.statusFilter = e.target.value;
     renderTable();
     updateStats();
   });
 
-  elements.paymentFilter.addEventListener("change", (e) => {
+  el.paymentFilter.addEventListener("change", (e) => {
     state.paymentFilter = e.target.value;
     renderTable();
     updateStats();
   });
 
-  elements.loadCsvBtn.addEventListener("click", () => elements.csvInput.click());
-  elements.csvInput.addEventListener("change", onFileUpload);
+  el.loadCsvBtn.addEventListener("click", () => el.csvInput.click());
+  el.csvInput.addEventListener("change", onFileUpload);
+  el.downloadBtn.addEventListener("click", downloadCsv);
+  el.resetBtn.addEventListener("click", () => loadRows());
 
-  elements.downloadBtn.addEventListener("click", downloadCsv);
-  elements.resetBtn.addEventListener("click", () => loadDataForCurrentRole());
-}
-
-async function handleSession(session) {
-  state.session = session;
-
-  if (!session) {
-    state.member = null;
-    state.rows = [];
-    showAuth();
-    return;
-  }
-
-  elements.userBadge.textContent = session.user.email || "Usuario";
-  hideAuth();
-  await loadMemberContext();
-  await loadDataForCurrentRole();
-  await loadMembersPanelIfAdmin();
+  el.createUserBtn.addEventListener("click", onCreateUser);
 }
 
 async function onLogin(event) {
   event.preventDefault();
+  if (state.busy) return;
+
   await runBusy(async () => {
-    setAuthMessage("Iniciando sesión...", "info");
-
-    const email = elements.emailInput.value.trim();
-    const password = elements.passwordInput.value;
-    if (!email || !password) {
-      setAuthMessage("Rellena email y contraseña.", "error");
+    const username = el.usernameInput.value.trim().toLowerCase();
+    const password = el.passwordInput.value;
+    if (!username || !password) {
+      setAuthMessage("Rellena usuario y contraseña.", "error");
       return;
     }
 
-    const { data, error } = await withTimeout(
-      sbClient.auth.signInWithPassword({ email, password }),
-      REQUEST_TIMEOUT_MS,
-      "signIn"
-    );
+    let login = await rpc("app_login", { p_username: username, p_password: password });
 
-    if (error) {
-      setAuthMessage(mapAuthError(error), "error");
+    // Bootstrap admin automático si no existen usuarios.
+    if (!login?.ok) {
+      const hasUsers = await rpc("app_has_users", {});
+      if (!hasUsers) {
+        await rpc("app_bootstrap_admin", { p_username: username, p_password: password });
+        login = await rpc("app_login", { p_username: username, p_password: password });
+      }
+    }
+
+    if (!login?.ok) {
+      setAuthMessage(login?.error || "Credenciales inválidas.", "error");
       return;
     }
 
-    if (!data.session) {
-      setAuthMessage("Login aceptado pero sin sesión activa.", "error");
-      return;
-    }
-
-    await handleSession(data.session);
+    state.token = login.token;
+    state.user = login.user;
+    localStorage.setItem(SESSION_KEY, state.token);
+    await enterDashboard();
   });
 }
 
-async function onRegister() {
+async function onLogout() {
   await runBusy(async () => {
-    setAuthMessage("Solicitando acceso...", "info");
-
-    const email = elements.emailInput.value.trim();
-    const password = elements.passwordInput.value;
-
-    if (!email || !password || password.length < 6) {
-      setAuthMessage("Email válido y contraseña >= 6.", "error");
-      return;
+    if (state.token) {
+      await rpc("app_logout", { p_token: state.token });
     }
-
-    const { data, error } = await withTimeout(
-      sbClient.auth.signUp({ email, password }),
-      REQUEST_TIMEOUT_MS,
-      "signUp"
-    );
-
-    if (error) {
-      setAuthMessage(mapAuthError(error), "error");
-      return;
-    }
-
-    if (data.session) {
-      await handleSession(data.session);
-      return;
-    }
-
-    setAuthMessage("Cuenta creada. Queda pendiente aprobación de un admin.", "info");
+    clearSession();
+    showAuth();
+    setAuthMessage("Sesión cerrada.", "info");
   });
 }
 
-async function loadMemberContext() {
-  const user = state.session?.user;
-  if (!user) return;
+async function enterDashboard() {
+  hideAuth();
+  el.userBadge.textContent = state.user.username;
+  el.roleSummary.textContent = state.user.is_admin ? "Rol: Administrador" : "Rol: Usuario (solo lectura)";
+  el.entryBar.classList.toggle("hidden", !state.user.is_admin);
+  el.adminPanel.classList.toggle("hidden", !state.user.is_admin);
 
-  let member = null;
+  await loadRows();
 
-  const { data, error } = await withTimeout(
-    sbClient.from(TEAM_TABLE).select("id,user_id,email,role,approved").eq("user_id", user.id).maybeSingle(),
-    REQUEST_TIMEOUT_MS,
-    "loadOwnMember"
-  );
-
-  if (error) throw new Error(`No se pudo leer team_members: ${mapDbError(error)}`);
-
-  member = data || null;
-
-  if (!member) {
-    const initialRole = user.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase() ? "admin" : "viewer";
-    const initialApproved = initialRole === "admin";
-
-    const insert = await withTimeout(
-      sbClient
-        .from(TEAM_TABLE)
-        .insert([
-          {
-            user_id: user.id,
-            email: user.email,
-            role: initialRole,
-            approved: initialApproved,
-          },
-        ])
-        .select("id,user_id,email,role,approved")
-        .single(),
-      REQUEST_TIMEOUT_MS,
-      "insertOwnMember"
-    );
-
-    if (insert.error) {
-      throw new Error(`No se pudo crear team_member: ${mapDbError(insert.error)}`);
-    }
-
-    member = insert.data;
-  }
-
-  state.member = member;
-
-  const roleTxt = member.role === "admin" ? "Administrador" : "Visualizador";
-  elements.roleSummary.textContent = `Rol: ${roleTxt} | ${member.approved ? "Aprobado" : "Pendiente de aprobación"}`;
-
-  if (!member.approved) {
-    elements.approvalNotice.classList.remove("hidden");
-    elements.approvalNotice.textContent =
-      "Tu cuenta está pendiente de aprobación por un administrador. Aún no puedes ver datos.";
-  } else {
-    elements.approvalNotice.classList.add("hidden");
-    elements.approvalNotice.textContent = "";
+  if (state.user.is_admin) {
+    await loadMembers();
   }
 }
 
-async function loadDataForCurrentRole() {
-  const member = state.member;
-  if (!member || !member.approved) {
-    state.rows = [];
-    elements.entryBar.classList.add("hidden");
-    renderTable();
-    updateStats();
-    return;
+async function safeMe() {
+  try {
+    return await rpc("app_me", { p_token: state.token });
+  } catch {
+    return null;
   }
+}
 
-  const isAdmin = member.role === "admin";
-  if (isAdmin) {
-    elements.entryBar.classList.remove("hidden");
-  } else {
-    elements.entryBar.classList.add("hidden");
-  }
-
-  const { data, error } = await withTimeout(
-    sbClient
-      .from(DATA_TABLE)
-      .select("id,data,created_at")
-      .order("created_at", { ascending: false })
-      .limit(ROW_LOAD_LIMIT),
-    REQUEST_TIMEOUT_MS,
-    "loadRows"
-  );
-
-  if (error) throw new Error(`No se pudo cargar datos: ${mapDbError(error)}`);
-
-  state.rows = (data || []).map((item) => ({ id: item.id, data: item.data || {} }));
+async function loadRows() {
+  const rows = await rpc("app_get_entries", { p_token: state.token, p_limit: ROW_LOAD_LIMIT });
+  state.rows = Array.isArray(rows) ? rows.map((r) => ({ id: r.id, data: r.data || {} })) : [];
   state.headers = inferHeaders(state.rows);
 
-  if (isAdmin && !state.rows.length) {
+  if (state.user.is_admin && state.rows.length === 0) {
     const seed = await loadInitialDatasetRows();
     if (seed.length) {
-      await insertRows(seed);
-      return await loadDataForCurrentRole();
+      const result = await rpc("app_replace_entries", { p_token: state.token, p_rows: seed });
+      if (result?.ok) {
+        return loadRows();
+      }
     }
   }
 
@@ -331,42 +199,37 @@ async function loadDataForCurrentRole() {
 }
 
 function renderEntryForm() {
-  elements.newEntryForm.innerHTML = "";
+  el.newEntryForm.innerHTML = "";
+  if (!state.user?.is_admin) return;
 
-  if (!state.member || state.member.role !== "admin") return;
-
-  state.headers.forEach((header) => {
+  state.headers.forEach((h) => {
     const label = document.createElement("label");
     label.className = "field";
-
     const span = document.createElement("span");
-    span.textContent = header;
-
+    span.textContent = h;
     const input = document.createElement("input");
-    input.name = header;
-    input.placeholder = `Escribe ${header}`;
-
+    input.name = h;
     label.appendChild(span);
     label.appendChild(input);
-    elements.newEntryForm.appendChild(label);
+    el.newEntryForm.appendChild(label);
   });
 
   const btn = document.createElement("button");
   btn.type = "submit";
   btn.className = "btn btn-primary";
   btn.textContent = "Guardar nueva entrada";
-  elements.newEntryForm.appendChild(btn);
+  el.newEntryForm.appendChild(btn);
 
-  elements.newEntryForm.onsubmit = async (event) => {
+  el.newEntryForm.onsubmit = async (event) => {
     event.preventDefault();
     await runBusy(async () => {
-      const form = new FormData(elements.newEntryForm);
+      const form = new FormData(el.newEntryForm);
       const row = {};
-      state.headers.forEach((h) => {
-        row[h] = String(form.get(h) || "").trim();
-      });
-      await createRow(row);
-      elements.newEntryForm.reset();
+      state.headers.forEach((h) => (row[h] = String(form.get(h) || "").trim()));
+      const res = await rpc("app_create_entry", { p_token: state.token, p_data: row });
+      if (!res?.ok) throw new Error(res?.error || "No se pudo crear");
+      await loadRows();
+      el.newEntryForm.reset();
     });
   };
 }
@@ -374,234 +237,173 @@ function renderEntryForm() {
 async function onFileUpload(event) {
   const file = event.target.files?.[0];
   if (!file) return;
-
-  if (!state.member || state.member.role !== "admin") {
+  if (!state.user?.is_admin) {
     alert("Solo admins pueden importar archivos.");
     return;
   }
 
   await runBusy(async () => {
     const text = await readTextFile(file);
-    const parsedRows = parseRowsFromText(text, file.name);
-
-    if (!parsedRows.length) {
-      alert("Archivo sin filas válidas.");
-      return;
-    }
-
-    const ok = confirm("Esto reemplazará todos los registros actuales. ¿Continuar?");
+    const rows = parseRowsFromText(text, file.name);
+    if (!rows.length) throw new Error("Archivo sin filas válidas");
+    const ok = confirm("Esto reemplazará todos los datos. ¿Continuar?");
     if (!ok) return;
-
-    await replaceAllRows(parsedRows);
-    await loadDataForCurrentRole();
+    const result = await rpc("app_replace_entries", { p_token: state.token, p_rows: rows });
+    if (!result?.ok) throw new Error(result?.error || "No se pudo importar");
+    await loadRows();
   });
 
   event.target.value = "";
 }
 
-async function loadMembersPanelIfAdmin() {
-  const isAdmin = state.member?.role === "admin" && state.member?.approved;
-  if (!isAdmin) {
-    elements.adminPanel.classList.add("hidden");
-    elements.membersTbody.innerHTML = "";
-    return;
-  }
-
-  elements.adminPanel.classList.remove("hidden");
-
-  const { data, error } = await withTimeout(
-    sbClient.from(TEAM_TABLE).select("id,user_id,email,role,approved").order("created_at", { ascending: false }),
-    REQUEST_TIMEOUT_MS,
-    "loadMembers"
-  );
-
-  if (error) {
-    elements.membersTbody.innerHTML = `<tr><td colspan="4">Error cargando miembros: ${escapeHtml(mapDbError(error))}</td></tr>`;
-    return;
-  }
-
-  elements.membersTbody.innerHTML = "";
-
-  (data || []).forEach((member) => {
-    const tr = document.createElement("tr");
-    const isSelf = member.user_id === state.session.user.id;
-
-    tr.innerHTML = `
-      <td>${escapeHtml(member.email)}</td>
-      <td><span class="role-pill ${member.role === "admin" ? "role-admin" : "role-viewer"}">${escapeHtml(
-      member.role
-    )}</span></td>
-      <td><span class="${member.approved ? "badge-ok" : "badge-pending"}">${member.approved ? "Aprobado" : "Pendiente"}</span></td>
-      <td class="actions-cell"></td>
-    `;
-
-    const actionsCell = tr.querySelector("td.actions-cell");
-
-    const approveBtn = document.createElement("button");
-    approveBtn.className = "btn";
-    approveBtn.textContent = member.approved ? "Bloquear" : "Aprobar";
-    approveBtn.disabled = isSelf;
-    approveBtn.addEventListener("click", async () => {
-      await updateMember(member.id, { approved: !member.approved });
-      await loadMembersPanelIfAdmin();
-    });
-
-    const roleBtn = document.createElement("button");
-    roleBtn.className = "btn";
-    roleBtn.textContent = member.role === "admin" ? "Pasar a viewer" : "Hacer admin";
-    roleBtn.disabled = isSelf;
-    roleBtn.addEventListener("click", async () => {
-      await updateMember(member.id, { role: member.role === "admin" ? "viewer" : "admin" });
-      await loadMembersPanelIfAdmin();
-    });
-
-    actionsCell.appendChild(approveBtn);
-    actionsCell.appendChild(roleBtn);
-    elements.membersTbody.appendChild(tr);
-  });
-}
-
-async function updateMember(memberId, patch) {
-  await runBusy(async () => {
-    const { error } = await withTimeout(
-      sbClient.from(TEAM_TABLE).update(patch).eq("id", memberId),
-      REQUEST_TIMEOUT_MS,
-      "updateMember"
-    );
-    if (error) throw new Error(`No se pudo actualizar miembro: ${mapDbError(error)}`);
-  });
-}
-
-async function replaceAllRows(rows) {
-  const { error: delErr } = await withTimeout(
-    sbClient.from(DATA_TABLE).delete().neq("id", "00000000-0000-0000-0000-000000000000"),
-    REQUEST_TIMEOUT_MS,
-    "deleteAllRows"
-  );
-  if (delErr) throw new Error(`No se pudo limpiar tabla: ${mapDbError(delErr)}`);
-
-  await insertRows(rows);
-}
-
-async function insertRows(rows) {
-  if (!rows.length) return;
-
-  const payload = rows.map((row) => ({ data: row }));
-  const chunkSize = 200;
-
-  for (let i = 0; i < payload.length; i += chunkSize) {
-    const chunk = payload.slice(i, i + chunkSize);
-    const { error } = await withTimeout(sbClient.from(DATA_TABLE).insert(chunk), REQUEST_TIMEOUT_MS, `insert:${i}`);
-    if (error) throw new Error(`Error insertando datos: ${mapDbError(error)}`);
-  }
-}
-
-async function createRow(rowData) {
-  if (!state.member || state.member.role !== "admin") return;
-
-  const { data, error } = await withTimeout(
-    sbClient.from(DATA_TABLE).insert([{ data: rowData }]).select("id,data").single(),
-    REQUEST_TIMEOUT_MS,
-    "createRow"
-  );
-
-  if (error) throw new Error(`No se pudo crear fila: ${mapDbError(error)}`);
-  state.rows.unshift({ id: data.id, data: data.data || {} });
-  renderTable();
-  updateStats();
-}
-
-async function updateRow(rowId, rowData) {
-  const { error } = await withTimeout(
-    sbClient.from(DATA_TABLE).update({ data: rowData }).eq("id", rowId),
-    REQUEST_TIMEOUT_MS,
-    "updateRow"
-  );
-  if (error) throw new Error(`No se pudo editar fila: ${mapDbError(error)}`);
-}
-
-async function deleteRow(rowId) {
-  const { error } = await withTimeout(sbClient.from(DATA_TABLE).delete().eq("id", rowId), REQUEST_TIMEOUT_MS, "deleteRow");
-  if (error) throw new Error(`No se pudo eliminar fila: ${mapDbError(error)}`);
-
-  state.rows = state.rows.filter((row) => row.id !== rowId);
-  renderTable();
-  updateStats();
-}
-
 function renderTable() {
-  elements.thead.innerHTML = "";
-  elements.tbody.innerHTML = "";
-
-  const isEditable = state.member?.role === "admin" && state.member?.approved;
+  el.thead.innerHTML = "";
+  el.tbody.innerHTML = "";
 
   updateFilterOptions();
 
-  const tr = document.createElement("tr");
+  const isEditable = !!state.user?.is_admin;
+
+  const hr = document.createElement("tr");
   state.headers.forEach((h) => {
     const th = document.createElement("th");
     th.textContent = h;
-    tr.appendChild(th);
+    hr.appendChild(th);
   });
-
-  const actionsTh = document.createElement("th");
-  actionsTh.textContent = isEditable ? "Acciones" : "";
-  tr.appendChild(actionsTh);
-  elements.thead.appendChild(tr);
+  const thActions = document.createElement("th");
+  thActions.textContent = isEditable ? "Acciones" : "";
+  hr.appendChild(thActions);
+  el.thead.appendChild(hr);
 
   getFilteredRows().forEach((rowObj) => {
-    const row = document.createElement("tr");
+    const tr = document.createElement("tr");
 
-    state.headers.forEach((header) => {
+    state.headers.forEach((h) => {
       const td = document.createElement("td");
-
       if (isEditable) {
         const input = document.createElement("input");
-        input.value = rowObj.data[header] ?? "";
+        input.value = rowObj.data[h] ?? "";
         input.addEventListener("change", async (e) => {
-          try {
-            rowObj.data[header] = e.target.value;
-            await updateRow(rowObj.id, rowObj.data);
-          } catch (error) {
-            alert(formatError(error));
-          }
+          await runBusy(async () => {
+            rowObj.data[h] = e.target.value;
+            const res = await rpc("app_update_entry", { p_token: state.token, p_id: rowObj.id, p_data: rowObj.data });
+            if (!res?.ok) throw new Error(res?.error || "No se pudo editar");
+          });
         });
         td.appendChild(input);
       } else {
-        td.textContent = rowObj.data[header] ?? "";
+        td.textContent = rowObj.data[h] ?? "";
       }
-
-      row.appendChild(td);
+      tr.appendChild(td);
     });
 
     const actionsTd = document.createElement("td");
     actionsTd.className = "actions-cell";
-
     if (isEditable) {
       const del = document.createElement("button");
       del.className = "icon-btn";
       del.textContent = "Eliminar";
       del.addEventListener("click", async () => {
-        try {
-          await deleteRow(rowObj.id);
-        } catch (error) {
-          alert(formatError(error));
-        }
+        await runBusy(async () => {
+          const res = await rpc("app_delete_entry", { p_token: state.token, p_id: rowObj.id });
+          if (!res?.ok) throw new Error(res?.error || "No se pudo eliminar");
+          await loadRows();
+        });
       });
       actionsTd.appendChild(del);
     }
+    tr.appendChild(actionsTd);
+    el.tbody.appendChild(tr);
+  });
+}
 
-    row.appendChild(actionsTd);
-    elements.tbody.appendChild(row);
+async function loadMembers() {
+  const users = await rpc("app_list_users", { p_token: state.token });
+  el.membersTbody.innerHTML = "";
+
+  (users || []).forEach((u) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(u.username)}</td>
+      <td>${u.is_admin ? '<span class="role-pill role-admin">admin</span>' : '<span class="role-pill role-viewer">user</span>'}</td>
+      <td>${u.is_active ? '<span class="badge-ok">Activo</span>' : '<span class="badge-pending">Bloqueado</span>'}</td>
+      <td class="actions-cell"></td>
+    `;
+
+    const cell = tr.querySelector("td.actions-cell");
+
+    const toggleRole = document.createElement("button");
+    toggleRole.className = "btn";
+    toggleRole.textContent = u.is_admin ? "Quitar admin" : "Hacer admin";
+    toggleRole.addEventListener("click", async () => {
+      await runBusy(async () => {
+        const res = await rpc("app_update_user", {
+          p_token: state.token,
+          p_user_id: u.id,
+          p_is_admin: !u.is_admin,
+          p_is_active: u.is_active,
+          p_new_password: null,
+        });
+        if (!res?.ok) throw new Error(res?.error || "No se pudo cambiar rol");
+        await loadMembers();
+      });
+    });
+
+    const toggleActive = document.createElement("button");
+    toggleActive.className = "btn";
+    toggleActive.textContent = u.is_active ? "Bloquear" : "Activar";
+    toggleActive.addEventListener("click", async () => {
+      await runBusy(async () => {
+        const res = await rpc("app_update_user", {
+          p_token: state.token,
+          p_user_id: u.id,
+          p_is_admin: u.is_admin,
+          p_is_active: !u.is_active,
+          p_new_password: null,
+        });
+        if (!res?.ok) throw new Error(res?.error || "No se pudo cambiar estado");
+        await loadMembers();
+      });
+    });
+
+    cell.appendChild(toggleRole);
+    cell.appendChild(toggleActive);
+    el.membersTbody.appendChild(tr);
+  });
+}
+
+async function onCreateUser() {
+  await runBusy(async () => {
+    const username = el.newUserInput.value.trim().toLowerCase();
+    const password = el.newUserPassInput.value;
+    const isAdmin = !!el.newUserAdminInput.checked;
+
+    if (!username || !password || password.length < 6) {
+      throw new Error("Usuario obligatorio y contraseña >= 6");
+    }
+
+    const res = await rpc("app_create_user", {
+      p_token: state.token,
+      p_username: username,
+      p_password: password,
+      p_is_admin: isAdmin,
+      p_is_active: true,
+    });
+
+    if (!res?.ok) throw new Error(res?.error || "No se pudo crear usuario");
+
+    el.newUserInput.value = "";
+    el.newUserPassInput.value = "";
+    el.newUserAdminInput.checked = false;
+    await loadMembers();
   });
 }
 
 function updateFilterOptions() {
   const statusHeader = getHeaderByKeyword("status", ["payment"]);
   const paymentHeader = getHeaderByKeyword("payment", []);
-
-  fillSelect(elements.statusFilter, statusHeader);
-  fillSelect(elements.paymentFilter, paymentHeader);
+  fillSelect(el.statusFilter, statusHeader);
+  fillSelect(el.paymentFilter, paymentHeader);
 }
 
 function fillSelect(select, headerName) {
@@ -612,10 +414,10 @@ function fillSelect(select, headerName) {
   [...new Set(state.rows.map((r) => r.data[headerName]).filter(Boolean))]
     .sort((a, b) => String(a).localeCompare(String(b)))
     .forEach((v) => {
-      const o = document.createElement("option");
-      o.value = v;
-      o.textContent = v;
-      select.appendChild(o);
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
     });
 
   if ([...select.options].some((o) => o.value === prev)) select.value = prev;
@@ -627,10 +429,10 @@ function getFilteredRows() {
 
   return state.rows.filter((row) => {
     const text = state.headers.map((h) => String(row.data[h] || "").toLowerCase()).join(" ");
-    const searchOk = !state.search || text.includes(state.search);
-    const statusOk = !state.statusFilter || !statusHeader || String(row.data[statusHeader] || "") === state.statusFilter;
-    const payOk = !state.paymentFilter || !paymentHeader || String(row.data[paymentHeader] || "") === state.paymentFilter;
-    return searchOk && statusOk && payOk;
+    const a = !state.search || text.includes(state.search);
+    const b = !state.statusFilter || !statusHeader || String(row.data[statusHeader] || "") === state.statusFilter;
+    const c = !state.paymentFilter || !paymentHeader || String(row.data[paymentHeader] || "") === state.paymentFilter;
+    return a && b && c;
   });
 }
 
@@ -639,101 +441,61 @@ function updateStats() {
   const paymentHeader = getHeaderByKeyword("payment", []);
   const salaryHeader = getHeaderByKeyword("salary", []);
 
-  const paid = paymentHeader
-    ? rows.filter((r) => String(r.data[paymentHeader] || "").toUpperCase().includes("PAID")).length
-    : 0;
-  const unpaid = paymentHeader
-    ? rows.filter((r) => String(r.data[paymentHeader] || "").toUpperCase().includes("UNPAID")).length
-    : 0;
+  const paid = paymentHeader ? rows.filter((r) => String(r.data[paymentHeader] || "").toUpperCase().includes("PAID")).length : 0;
+  const unpaid = paymentHeader ? rows.filter((r) => String(r.data[paymentHeader] || "").toUpperCase().includes("UNPAID")).length : 0;
   const totalSalary = salaryHeader ? rows.reduce((acc, r) => acc + parseMoney(r.data[salaryHeader]), 0) : 0;
 
-  elements.stats.innerHTML = [
+  el.stats.innerHTML = [
     { label: "Registros", value: rows.length },
     { label: "Pagados", value: paid },
     { label: "Pendientes", value: unpaid },
     { label: "Total salario", value: formatMoney(totalSalary) },
   ]
-    .map((item) => `<article class="stat"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(String(item.value))}</b></article>`)
+    .map((i) => `<article class="stat"><span>${escapeHtml(i.label)}</span><b>${escapeHtml(String(i.value))}</b></article>`)
     .join("");
 }
 
 function showAuth() {
-  elements.authGate.classList.remove("hidden");
-  elements.appShell.classList.add("hidden");
+  el.authGate.classList.remove("hidden");
+  el.appShell.classList.add("hidden");
 }
 
 function hideAuth() {
-  elements.authGate.classList.add("hidden");
-  elements.appShell.classList.remove("hidden");
+  el.authGate.classList.add("hidden");
+  el.appShell.classList.remove("hidden");
 }
 
 function setAuthMessage(message, tone = "info") {
-  elements.authMessage.textContent = message;
-  if (tone === "error") {
-    elements.authMessage.style.color = "var(--danger)";
-    return;
-  }
-  if (tone === "success") {
-    elements.authMessage.style.color = "var(--accent)";
-    return;
-  }
-  elements.authMessage.style.color = "var(--muted)";
+  el.authMessage.textContent = message;
+  if (tone === "error") el.authMessage.style.color = "var(--danger)";
+  else if (tone === "success") el.authMessage.style.color = "var(--accent)";
+  else el.authMessage.style.color = "var(--muted)";
 }
 
-function mapAuthError(error) {
-  const msg = String(error?.message || "").toLowerCase();
-  const code = String(error?.code || error?.error_code || "").toLowerCase();
-
-  if (code.includes("over_email_send_rate_limit") || msg.includes("email rate limit exceeded")) {
-    return "Límite de emails de Supabase alcanzado. Configura SMTP o desactiva confirmación de email.";
-  }
-  if (msg.includes("email not confirmed")) {
-    return "Email no confirmado. Desactiva confirmación o confirma el correo.";
-  }
-  if (msg.includes("invalid login credentials")) {
-    return "Credenciales inválidas.";
-  }
-  return error?.message || "Error de autenticación";
-}
-
-function mapDbError(error) {
-  const msg = String(error?.message || "").toLowerCase();
-  const code = String(error?.code || "");
-  if (code === "42501" || msg.includes("row-level security")) return "Permisos insuficientes (RLS).";
-  if (code === "42p01" || msg.includes("does not exist")) return "Falta tabla en Supabase.";
-  return error?.message || "Error de base de datos";
-}
-
-function formatError(error) {
-  if (!error) return "Error desconocido";
-  if (typeof error === "string") return error;
-  return error.message || JSON.stringify(error);
+function clearSession() {
+  state.token = "";
+  state.user = null;
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function runBusy(fn) {
-  if (state.isBusy) return;
-  state.isBusy = true;
-  toggleAuthBusy(true);
+  if (state.busy) return;
+  state.busy = true;
   try {
     await fn();
-  } catch (error) {
-    console.error(error);
-    const text = formatError(error);
-    if (elements.authGate.classList.contains("hidden")) {
-      alert(text);
-    } else {
-      setAuthMessage(text, "error");
-    }
+  } catch (e) {
+    const msg = e.message || String(e);
+    if (el.authGate.classList.contains("hidden")) alert(msg);
+    else setAuthMessage(msg, "error");
   } finally {
-    state.isBusy = false;
-    toggleAuthBusy(false);
+    state.busy = false;
   }
 }
 
-function toggleAuthBusy(disabled) {
-  const submit = elements.loginForm.querySelector("button[type='submit']");
-  if (submit) submit.disabled = disabled;
-  if (elements.registerBtn) elements.registerBtn.disabled = disabled;
+async function rpc(name, params) {
+  const { data, error } = await withTimeout(sb.rpc(name, params || {}), REQUEST_TIMEOUT_MS, name);
+  if (error) throw new Error(error.message || `RPC ${name} falló`);
+  return data;
 }
 
 function withTimeout(promise, ms, label) {
@@ -745,17 +507,16 @@ function withTimeout(promise, ms, label) {
 
 function readTextFile(file) {
   return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result || ""));
-    r.onerror = () => reject(new Error("No se pudo leer archivo"));
-    r.readAsText(file, "utf-8");
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("No se pudo leer archivo"));
+    reader.readAsText(file, "utf-8");
   });
 }
 
 function downloadCsv() {
   const lines = [state.headers, ...state.rows.map((r) => state.headers.map((h) => r.data[h] ?? ""))];
   const csv = toCsv(lines);
-
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -767,75 +528,60 @@ function downloadCsv() {
 
 async function loadInitialDatasetRows() {
   try {
-    const htmlResponse = await fetch(ORIGINAL_HTML_FILE);
-    if (htmlResponse.ok) {
-      const html = await htmlResponse.text();
-      return parseRowsFromText(html, "Principal.html");
-    }
-  } catch {
-    // fallback
-  }
+    const r = await fetch(ORIGINAL_HTML_FILE);
+    if (r.ok) return parseRowsFromText(await r.text(), "Principal.html");
+  } catch {}
 
   try {
-    const csvResponse = await fetch(ORIGINAL_CSV_FILE);
-    if (!csvResponse.ok) return [];
-    const csv = await csvResponse.text();
-    return parseRowsFromText(csv, "Principal.csv");
-  } catch {
-    return [];
-  }
+    const r = await fetch(ORIGINAL_CSV_FILE);
+    if (r.ok) return parseRowsFromText(await r.text(), "Principal.csv");
+  } catch {}
+
+  return [];
 }
 
 function parseRowsFromText(content, fileName = "") {
   const lower = fileName.toLowerCase();
-  const looksHtml = lower.endsWith(".html") || lower.endsWith(".htm") || /<table/i.test(content);
-  return looksHtml ? parseRowsFromHtml(content) : parseRowsFromCsv(content);
+  const html = lower.endsWith(".html") || lower.endsWith(".htm") || /<table/i.test(content);
+  return html ? parseRowsFromHtml(content) : parseRowsFromCsv(content);
 }
 
 function parseRowsFromCsv(csvText) {
   const parsed = parseCsv(csvText);
-  if (!parsed.length) throw new Error("CSV vacío");
+  if (!parsed.length) return [];
 
-  const headers = parsed[0].map((h, index) => {
+  const headers = parsed[0].map((h, i) => {
     const v = String(h || "").trim();
-    return v || (index === 0 ? "NAME" : `COLUMN_${index + 1}`);
+    return v || (i === 0 ? "NAME" : `COLUMN_${i + 1}`);
   });
 
   return parsed
     .slice(1)
     .map((line) => {
       const row = {};
-      headers.forEach((header, i) => {
-        row[header] = String(line[i] || "").trim();
-      });
+      headers.forEach((h, i) => (row[h] = String(line[i] || "").trim()));
       return row;
     })
     .filter((row) => isMeaningfulRow(row, headers));
 }
 
 function parseRowsFromHtml(htmlText) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlText, "text/html");
+  const doc = new DOMParser().parseFromString(htmlText, "text/html");
   const table = doc.querySelector("table.waffle") || doc.querySelector("table");
-  if (!table) throw new Error("No se encontró tabla en HTML");
+  if (!table) return [];
 
   const bodyRows = [...table.querySelectorAll("tbody tr")];
-  if (!bodyRows.length) throw new Error("Tabla HTML sin filas");
+  if (!bodyRows.length) return [];
 
   const headerCells = [...(bodyRows[0]?.querySelectorAll("td") || [])];
-  const headers = headerCells.map((cell, index) => {
-    const label = cleanCellText(cell.textContent || "");
-    return label || (index === 0 ? "NAME" : `COLUMN_${index + 1}`);
-  });
+  const headers = headerCells.map((c, i) => cleanCellText(c.textContent || "") || (i === 0 ? "NAME" : `COLUMN_${i + 1}`));
 
   return bodyRows
     .slice(1)
     .map((tr) => {
       const cells = [...tr.querySelectorAll("td")];
       const row = {};
-      headers.forEach((header, i) => {
-        row[header] = cleanCellText(cells[i]?.textContent || "");
-      });
+      headers.forEach((h, i) => (row[h] = cleanCellText(cells[i]?.textContent || "")));
       return row;
     })
     .filter((row) => isMeaningfulRow(row, headers));
@@ -848,10 +594,10 @@ function parseCsv(text) {
   let inQuotes = false;
 
   for (let i = 0; i < text.length; i += 1) {
-    const char = text[i];
+    const ch = text[i];
     const next = text[i + 1];
 
-    if (char === '"') {
+    if (ch === '"') {
       if (inQuotes && next === '"') {
         value += '"';
         i += 1;
@@ -861,14 +607,14 @@ function parseCsv(text) {
       continue;
     }
 
-    if (char === "," && !inQuotes) {
+    if (ch === "," && !inQuotes) {
       row.push(value);
       value = "";
       continue;
     }
 
-    if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && next === "\n") i += 1;
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") i += 1;
       row.push(value);
       if (row.length > 1 || row[0] !== "") rows.push(row);
       row = [];
@@ -876,7 +622,7 @@ function parseCsv(text) {
       continue;
     }
 
-    value += char;
+    value += ch;
   }
 
   if (value !== "" || row.length) {
@@ -890,43 +636,30 @@ function parseCsv(text) {
 function inferHeaders(rows) {
   if (!rows.length) return [...DEFAULT_HEADERS];
   const ordered = [];
-
-  DEFAULT_HEADERS.forEach((header) => {
-    if (rows.some((r) => Object.prototype.hasOwnProperty.call(r.data, header))) ordered.push(header);
+  DEFAULT_HEADERS.forEach((h) => {
+    if (rows.some((r) => Object.prototype.hasOwnProperty.call(r.data, h))) ordered.push(h);
   });
-
-  rows.forEach((r) => {
-    Object.keys(r.data || {}).forEach((h) => {
-      if (!ordered.includes(h)) ordered.push(h);
-    });
-  });
-
+  rows.forEach((r) => Object.keys(r.data || {}).forEach((h) => { if (!ordered.includes(h)) ordered.push(h); }));
   return ordered;
 }
 
 function getHeaderByKeyword(keyword, excludes = []) {
-  const needle = String(keyword || "").toLowerCase();
-  return (
-    state.headers.find((h) => {
-      const low = h.toLowerCase();
-      return low.includes(needle) && excludes.every((x) => !low.includes(String(x).toLowerCase()));
-    }) || null
-  );
+  const n = String(keyword).toLowerCase();
+  return state.headers.find((h) => {
+    const low = h.toLowerCase();
+    return low.includes(n) && excludes.every((x) => !low.includes(String(x).toLowerCase()));
+  }) || null;
 }
 
 function parseMoney(value) {
   if (!value) return 0;
   const normalized = String(value).replace(/[^0-9,.-]/g, "").replace(/\./g, "").replace(",", ".");
-  const n = Number(normalized);
-  return Number.isFinite(n) ? n : 0;
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : 0;
 }
 
-function formatMoney(value) {
-  return new Intl.NumberFormat("es-ES", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 2,
-  }).format(value || 0);
+function formatMoney(v) {
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(v || 0);
 }
 
 function toCsv(matrix) {
@@ -945,17 +678,16 @@ function toCsv(matrix) {
 function isMeaningfulRow(row, headers) {
   const hasAny = Object.values(row).some((v) => String(v || "").trim() !== "");
   if (!hasAny) return false;
-
   const important = ["name", "work", "status", "payment", "date", "how to"];
   return headers.some((h) => important.some((i) => h.toLowerCase().includes(i)) && String(row[h] || "").trim() !== "");
 }
 
-function cleanCellText(value) {
-  return String(value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+function cleanCellText(v) {
+  return String(v || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function escapeHtml(value) {
-  return String(value)
+function escapeHtml(v) {
+  return String(v)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
