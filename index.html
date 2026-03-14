@@ -10,22 +10,23 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <button id="langToggle" class="lang-toggle" type="button" aria-label="Switch language">🇬🇧</button>
     <section id="authGate" class="auth-shell">
       <article class="auth-card">
-        <h1>Vanaco Working Force</h1>
-        <p>Acceso por usuario y contraseña</p>
+        <h1 data-i18n="app.title">Vanaco Working Force</h1>
+        <p data-i18n="auth.subtitle">Acceso por usuario y contraseña</p>
         <form id="loginForm" class="auth-form">
           <label class="field">
-            <span>Usuario</span>
-            <input id="usernameInput" type="text" required placeholder="admin" />
+            <span data-i18n="auth.username">Usuario</span>
+            <input id="usernameInput" type="text" required placeholder="admin" data-i18n-placeholder="auth.username_placeholder" />
           </label>
           <label class="field">
-            <span>Contraseña</span>
-            <input id="passwordInput" type="password" required placeholder="********" />
+            <span data-i18n="auth.password">Contraseña</span>
+            <input id="passwordInput" type="password" required placeholder="********" data-i18n-placeholder="auth.password_placeholder" />
           </label>
           <div class="auth-actions">
-            <button class="btn btn-primary" type="submit">Entrar</button>
-            <button id="registerBtn" class="btn" type="button">Registrarse</button>
+            <button class="btn btn-primary" type="submit" data-i18n="auth.login">Entrar</button>
+            <button id="registerBtn" class="btn" type="button" data-i18n="auth.register">Registrarse</button>
           </div>
           <p id="authMessage" class="auth-message"></p>
           <p id="appVersion" class="auth-version"></p>
@@ -36,41 +37,41 @@
     <div id="appShell" class="hidden">
       <header class="hero">
         <div>
-          <h1>Vanaco Working Force</h1>
-          <p id="roleSummary">Panel de gestión</p>
+          <h1 data-i18n="app.title">Vanaco Working Force</h1>
+          <p id="roleSummary" data-i18n="app.subtitle">Panel de gestión</p>
         </div>
         <div class="hero-actions">
           <span id="userBadge"></span>
-          <button id="logoutBtn" class="btn">Cerrar sesión</button>
+          <button id="logoutBtn" class="btn" data-i18n="auth.logout">Cerrar sesión</button>
         </div>
       </header>
 
       <main class="layout">
         <section id="entryBar" class="panel entry-bar hidden">
-          <h2>Nueva entrada</h2>
+          <h2 data-i18n="entry.new_title">Nueva entrada</h2>
           <form id="newEntryForm" class="entry-grid"></form>
         </section>
 
         <section class="panel controls">
           <div class="controls-row">
             <label class="field">
-              <span>Buscar</span>
-              <input id="searchInput" type="text" placeholder="Nombre, trabajo, estado..." />
+              <span data-i18n="filters.search">Buscar</span>
+              <input id="searchInput" type="text" placeholder="Nombre, trabajo, estado..." data-i18n-placeholder="filters.search_placeholder" />
             </label>
             <label class="field">
-              <span>Filtro Estado</span>
+              <span data-i18n="filters.status">Filtro Estado</span>
               <select id="statusFilter"><option value="">Todos</option></select>
             </label>
             <label class="field">
-              <span>Filtro Pago</span>
+              <span data-i18n="filters.payment">Filtro Pago</span>
               <select id="paymentFilter"><option value="">Todos</option></select>
             </label>
           </div>
           <div class="controls-row actions">
-            <button id="loadCsvBtn" class="btn">Importar archivo</button>
+            <button id="loadCsvBtn" class="btn" data-i18n="actions.import">Importar archivo</button>
             <input id="csvInput" type="file" accept=".csv,.html,.htm" hidden />
-            <button id="downloadBtn" class="btn btn-primary">Exportar CSV</button>
-            <button id="resetBtn" class="btn">Recargar nube</button>
+            <button id="downloadBtn" class="btn btn-primary" data-i18n="actions.export">Exportar CSV</button>
+            <button id="resetBtn" class="btn" data-i18n="actions.reload">Recargar nube</button>
           </div>
         </section>
 
@@ -83,16 +84,16 @@
         </section>
 
         <section id="adminPanel" class="panel hidden">
-          <h2>Panel Admin</h2>
+          <h2 data-i18n="admin.panel_title">Panel Admin</h2>
           <div class="admin-create">
-            <input id="newUserInput" type="text" placeholder="nuevo_usuario" />
-            <input id="newUserPassInput" type="password" placeholder="contraseña" />
-            <label><input id="newUserAdminInput" type="checkbox" /> Admin</label>
-            <button id="createUserBtn" class="btn">Crear usuario</button>
+            <input id="newUserInput" type="text" placeholder="nuevo_usuario" data-i18n-placeholder="admin.new_user_placeholder" />
+            <input id="newUserPassInput" type="password" placeholder="contraseña" data-i18n-placeholder="admin.new_pass_placeholder" />
+            <label><input id="newUserAdminInput" type="checkbox" /> <span data-i18n="admin.admin_label">Admin</span></label>
+            <button id="createUserBtn" class="btn" data-i18n="admin.create_user">Crear usuario</button>
           </div>
           <div class="table-wrap">
             <table id="membersTable">
-              <thead><tr><th>Usuario</th><th>Rol</th><th>Activo</th><th>Acciones</th></tr></thead>
+              <thead><tr><th data-i18n="admin.th_user">Usuario</th><th data-i18n="admin.th_role">Rol</th><th data-i18n="admin.th_active">Activo</th><th data-i18n="admin.th_actions">Acciones</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>

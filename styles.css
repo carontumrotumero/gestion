@@ -162,6 +162,20 @@ select {
   padding: 0.4rem 0.85rem;
 }
 
+.lang-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f0f6f1;
+  padding: 0.35rem 0.7rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: var(--shadow);
+}
+
 .layout {
   max-width: 1320px;
   margin: 0 auto;

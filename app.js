@@ -1,8 +1,9 @@
-const APP_VERSION = "2026-03-09.7";
+const APP_VERSION = "2026-03-14.1";
 const ROW_LOAD_LIMIT = 500;
 const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = ["NAME", "WORK", "STATUS", "PAYMENT STATUS", "PRICE PER UNIT", "QUANTITY", "SALARY", "DATE", "HOW TO"];
+const LANG_KEY = "vanaco_lang_v1";
 
 const state = {
   user: null,
@@ -12,6 +13,7 @@ const state = {
   statusFilter: "",
   paymentFilter: "",
   busy: false,
+  lang: localStorage.getItem(LANG_KEY) || "es",
 };
 
 const el = {
@@ -19,6 +21,7 @@ const el = {
   appShell: document.getElementById("appShell"),
   loginForm: document.getElementById("loginForm"),
   registerBtn: document.getElementById("registerBtn"),
+  langToggle: document.getElementById("langToggle"),
   usernameInput: document.getElementById("usernameInput"),
   passwordInput: document.getElementById("passwordInput"),
   authMessage: document.getElementById("authMessage"),
@@ -46,6 +49,121 @@ const el = {
   createUserBtn: document.getElementById("createUserBtn"),
 };
 
+const I18N = {
+  es: {
+    "app.title": "Vanaco Working Force",
+    "app.subtitle": "Panel de gestión",
+    "auth.subtitle": "Acceso por usuario y contraseña",
+    "auth.username": "Usuario",
+    "auth.password": "Contraseña",
+    "auth.username_placeholder": "admin",
+    "auth.password_placeholder": "********",
+    "auth.login": "Entrar",
+    "auth.register": "Registrarse",
+    "auth.logout": "Cerrar sesión",
+    "auth.need_credentials": "Rellena usuario y contraseña.",
+    "auth.logged_out": "Sesión cerrada.",
+    "auth.login_prompt": "Introduce usuario y contraseña.",
+    "auth.pending": "Usuario registrado. Espera aprobación del admin.",
+    "role.admin": "Rol: Administrador",
+    "role.viewer": "Rol: Usuario (solo lectura)",
+    "entry.new_title": "Nueva entrada",
+    "entry.save": "Guardar nueva entrada",
+    "filters.search": "Buscar",
+    "filters.search_placeholder": "Nombre, trabajo, estado...",
+    "filters.status": "Filtro Estado",
+    "filters.payment": "Filtro Pago",
+    "filters.all": "Todos",
+    "actions.import": "Importar archivo",
+    "actions.export": "Exportar CSV",
+    "actions.reload": "Recargar nube",
+    "actions.delete": "Eliminar",
+    "actions.confirm_replace": "Esto reemplazará todos los datos. ¿Continuar?",
+    "actions.admin_only": "Solo admins pueden importar archivos.",
+    "actions.invalid_file": "Archivo sin filas válidas",
+    "admin.panel_title": "Panel Admin",
+    "admin.new_user_placeholder": "nuevo_usuario",
+    "admin.new_pass_placeholder": "contraseña",
+    "admin.admin_label": "Admin",
+    "admin.create_user": "Crear usuario",
+    "admin.th_user": "Usuario",
+    "admin.th_role": "Rol",
+    "admin.th_active": "Activo",
+    "admin.th_actions": "Acciones",
+    "admin.role_admin": "admin",
+    "admin.role_user": "user",
+    "admin.active": "Activo",
+    "admin.blocked": "Bloqueado",
+    "admin.make_admin": "Hacer admin",
+    "admin.remove_admin": "Quitar admin",
+    "admin.block": "Bloquear",
+    "admin.activate": "Activar",
+    "admin.require_user": "Usuario obligatorio y contraseña >= 6",
+    "stats.records": "Registros",
+    "stats.paid": "Pagados",
+    "stats.unpaid": "Pendientes",
+    "stats.total": "Total salario",
+    "table.actions": "Acciones",
+    "lang.label": "Cambiar idioma",
+  },
+  en: {
+    "app.title": "Vanaco Working Force",
+    "app.subtitle": "Management dashboard",
+    "auth.subtitle": "Access with username and password",
+    "auth.username": "Username",
+    "auth.password": "Password",
+    "auth.username_placeholder": "admin",
+    "auth.password_placeholder": "********",
+    "auth.login": "Log in",
+    "auth.register": "Register",
+    "auth.logout": "Log out",
+    "auth.need_credentials": "Enter username and password.",
+    "auth.logged_out": "Session closed.",
+    "auth.login_prompt": "Enter username and password.",
+    "auth.pending": "User registered. Await admin approval.",
+    "role.admin": "Role: Administrator",
+    "role.viewer": "Role: Viewer (read only)",
+    "entry.new_title": "New entry",
+    "entry.save": "Save new entry",
+    "filters.search": "Search",
+    "filters.search_placeholder": "Name, job, status...",
+    "filters.status": "Status filter",
+    "filters.payment": "Payment filter",
+    "filters.all": "All",
+    "actions.import": "Import file",
+    "actions.export": "Export CSV",
+    "actions.reload": "Reload cloud",
+    "actions.delete": "Delete",
+    "actions.confirm_replace": "This will replace all data. Continue?",
+    "actions.admin_only": "Only admins can import files.",
+    "actions.invalid_file": "File has no valid rows",
+    "admin.panel_title": "Admin Panel",
+    "admin.new_user_placeholder": "new_user",
+    "admin.new_pass_placeholder": "password",
+    "admin.admin_label": "Admin",
+    "admin.create_user": "Create user",
+    "admin.th_user": "User",
+    "admin.th_role": "Role",
+    "admin.th_active": "Active",
+    "admin.th_actions": "Actions",
+    "admin.role_admin": "admin",
+    "admin.role_user": "user",
+    "admin.active": "Active",
+    "admin.blocked": "Blocked",
+    "admin.make_admin": "Make admin",
+    "admin.remove_admin": "Remove admin",
+    "admin.block": "Block",
+    "admin.activate": "Activate",
+    "admin.require_user": "Username required and password >= 6",
+    "stats.records": "Records",
+    "stats.paid": "Paid",
+    "stats.unpaid": "Pending",
+    "stats.total": "Total salary",
+    "table.actions": "Actions",
+    "lang.label": "Switch language",
+  },
+};
+
 init().catch((e) => {
   setAuthMessage(`Error init: ${e.message || e}`, "error");
 });
@@ -53,7 +171,8 @@ init().catch((e) => {
 async function init() {
   el.appVersion.textContent = `Build ${APP_VERSION}`;
   bindEvents();
-  setAuthMessage("Introduce usuario y contraseña.", "info");
+  applyI18n();
+  setAuthMessage(t("auth.login_prompt"), "info");
 
   const session = await apiGet("/api/session");
   if (session?.loggedIn && session.user) {
@@ -69,6 +188,7 @@ function bindEvents() {
   el.loginForm.addEventListener("submit", onLogin);
   el.registerBtn.addEventListener("click", onRegister);
   el.logoutBtn.addEventListener("click", onLogout);
+  el.langToggle.addEventListener("click", onToggleLang);
 
   el.searchInput.addEventListener("input", (e) => {
     state.search = String(e.target.value || "").toLowerCase().trim();
@@ -104,7 +224,7 @@ async function onLogin(event) {
     const username = el.usernameInput.value.trim().toLowerCase();
     const password = el.passwordInput.value;
     if (!username || !password) {
-      setAuthMessage("Rellena usuario y contraseña.", "error");
+      setAuthMessage(t("auth.need_credentials"), "error");
       return;
     }
 
@@ -121,7 +241,7 @@ async function onRegister() {
     const username = el.usernameInput.value.trim().toLowerCase();
     const password = el.passwordInput.value;
     if (!username || !password) {
-      setAuthMessage("Rellena usuario y contraseña.", "error");
+      setAuthMessage(t("auth.need_credentials"), "error");
       return;
     }
 
@@ -132,7 +252,7 @@ async function onRegister() {
       return;
     }
 
-    setAuthMessage(data.message || "Usuario registrado. Espera aprobación del admin.", "success");
+    setAuthMessage(data.message || t("auth.pending"), "success");
   });
 }
 
@@ -141,14 +261,14 @@ async function onLogout() {
     await apiGet("/auth/logout");
     state.user = null;
     showAuth();
-    setAuthMessage("Sesión cerrada.", "info");
+    setAuthMessage(t("auth.logged_out"), "info");
   });
 }
 
 async function enterDashboard() {
   hideAuth();
   el.userBadge.textContent = state.user.username;
-  el.roleSummary.textContent = state.user.is_admin ? "Rol: Administrador" : "Rol: Usuario (solo lectura)";
+  el.roleSummary.textContent = state.user.is_admin ? t("role.admin") : t("role.viewer");
   el.entryBar.classList.toggle("hidden", !state.user.is_admin);
   el.adminPanel.classList.toggle("hidden", !state.user.is_admin);
 
@@ -196,7 +316,7 @@ function renderEntryForm() {
   const btn = document.createElement("button");
   btn.type = "submit";
   btn.className = "btn btn-primary";
-  btn.textContent = "Guardar nueva entrada";
+  btn.textContent = t("entry.save");
   el.newEntryForm.appendChild(btn);
 
   el.newEntryForm.onsubmit = async (event) => {
@@ -216,15 +336,15 @@ async function onFileUpload(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   if (!state.user?.is_admin) {
-    alert("Solo admins pueden importar archivos.");
+    alert(t("actions.admin_only"));
     return;
   }
 
   await runBusy(async () => {
     const text = await readTextFile(file);
     const rows = parseRowsFromText(text, file.name);
-    if (!rows.length) throw new Error("Archivo sin filas válidas");
-    const ok = confirm("Esto reemplazará todos los datos. ¿Continuar?");
+    if (!rows.length) throw new Error(t("actions.invalid_file"));
+    const ok = confirm(t("actions.confirm_replace"));
     if (!ok) return;
     await apiPost("/api/entries/replace", { rows });
     await loadRows();
@@ -248,7 +368,7 @@ function renderTable() {
     hr.appendChild(th);
   });
   const thActions = document.createElement("th");
-  thActions.textContent = isEditable ? "Acciones" : "";
+  thActions.textContent = isEditable ? t("table.actions") : "";
   hr.appendChild(thActions);
   el.thead.appendChild(hr);
 
@@ -278,7 +398,7 @@ function renderTable() {
     if (isEditable) {
       const del = document.createElement("button");
       del.className = "icon-btn";
-      del.textContent = "Eliminar";
+      del.textContent = t("actions.delete");
       del.addEventListener("click", async () => {
         await runBusy(async () => {
           await apiDelete(`/api/entries/${rowObj.id}`);
@@ -301,8 +421,8 @@ async function loadMembers() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(u.username)}</td>
-      <td>${u.is_admin ? '<span class="role-pill role-admin">admin</span>' : '<span class="role-pill role-viewer">user</span>'}</td>
-      <td>${u.is_active ? '<span class="badge-ok">Activo</span>' : '<span class="badge-pending">Bloqueado</span>'}</td>
+      <td>${u.is_admin ? `<span class=\"role-pill role-admin\">${t("admin.role_admin")}</span>` : `<span class=\"role-pill role-viewer\">${t("admin.role_user")}</span>`}</td>
+      <td>${u.is_active ? `<span class=\"badge-ok\">${t("admin.active")}</span>` : `<span class=\"badge-pending\">${t("admin.blocked")}</span>`}</td>
       <td class="actions-cell"></td>
     `;
 
@@ -310,7 +430,7 @@ async function loadMembers() {
 
     const toggleRole = document.createElement("button");
     toggleRole.className = "btn";
-    toggleRole.textContent = u.is_admin ? "Quitar admin" : "Hacer admin";
+    toggleRole.textContent = u.is_admin ? t("admin.remove_admin") : t("admin.make_admin");
     toggleRole.addEventListener("click", async () => {
       await runBusy(async () => {
         await apiPatch(`/api/admin/users/${u.id}`, {
@@ -323,7 +443,7 @@ async function loadMembers() {
 
     const toggleActive = document.createElement("button");
     toggleActive.className = "btn";
-    toggleActive.textContent = u.is_active ? "Bloquear" : "Activar";
+    toggleActive.textContent = u.is_active ? t("admin.block") : t("admin.activate");
     toggleActive.addEventListener("click", async () => {
       await runBusy(async () => {
         await apiPatch(`/api/admin/users/${u.id}`, {
@@ -347,7 +467,7 @@ async function onCreateUser() {
     const isAdmin = !!el.newUserAdminInput.checked;
 
     if (!username || !password || password.length < 6) {
-      throw new Error("Usuario obligatorio y contraseña >= 6");
+      throw new Error(t("admin.require_user"));
     }
 
     await apiPost("/api/admin/users", {
@@ -373,7 +493,7 @@ function updateFilterOptions() {
 
 function fillSelect(select, headerName) {
   const prev = select.value;
-  select.innerHTML = "<option value=''>Todos</option>";
+  select.innerHTML = `<option value=''>${t("filters.all")}</option>`;
   if (!headerName) return;
 
   [...new Set(state.rows.map((r) => r.data[headerName]).filter(Boolean))]
@@ -411,10 +531,10 @@ function updateStats() {
   const totalSalary = salaryHeader ? rows.reduce((acc, r) => acc + parseMoney(r.data[salaryHeader]), 0) : 0;
 
   el.stats.innerHTML = [
-    { label: "Registros", value: rows.length },
-    { label: "Pagados", value: paid },
-    { label: "Pendientes", value: unpaid },
-    { label: "Total salario", value: formatMoney(totalSalary) },
+    { label: t("stats.records"), value: rows.length },
+    { label: t("stats.paid"), value: paid },
+    { label: t("stats.unpaid"), value: unpaid },
+    { label: t("stats.total"), value: formatMoney(totalSalary) },
   ]
     .map((i) => `<article class="stat"><span>${escapeHtml(i.label)}</span><b>${escapeHtml(String(i.value))}</b></article>`)
     .join("");
@@ -435,6 +555,43 @@ function setAuthMessage(message, tone = "info") {
   if (tone === "error") el.authMessage.style.color = "var(--danger)";
   else if (tone === "success") el.authMessage.style.color = "var(--accent)";
   else el.authMessage.style.color = "var(--muted)";
+}
+
+function t(key) {
+  return (I18N[state.lang] && I18N[state.lang][key]) || I18N.es[key] || key;
+}
+
+function applyI18n() {
+  document.documentElement.lang = state.lang;
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    const key = node.getAttribute("data-i18n");
+    node.textContent = t(key);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    const key = node.getAttribute("data-i18n-placeholder");
+    node.setAttribute("placeholder", t(key));
+  });
+  el.langToggle.textContent = state.lang === "es" ? "🇬🇧" : "🇪🇸";
+  el.langToggle.setAttribute("aria-label", t("lang.label"));
+  refreshDynamicLanguage();
+}
+
+function refreshDynamicLanguage() {
+  if (state.user) {
+    el.roleSummary.textContent = state.user.is_admin ? t("role.admin") : t("role.viewer");
+  }
+  renderEntryForm();
+  renderTable();
+  updateStats();
+  if (state.user?.is_admin) {
+    loadMembers();
+  }
+}
+
+function onToggleLang() {
+  state.lang = state.lang === "es" ? "en" : "es";
+  localStorage.setItem(LANG_KEY, state.lang);
+  applyI18n();
 }
 
 async function runBusy(fn) {
