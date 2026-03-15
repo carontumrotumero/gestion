@@ -3,115 +3,135 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vanaco Working Force</title>
+    <title>Pokerivals | Rangos Minecraft Inspirado en Pokemon</title>
+    <meta
+      name="description"
+      content="Compra rangos y extras para Pokerivals, servidor de Minecraft inspirado en Pokemon."
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <button id="langToggle" class="lang-toggle" type="button" aria-label="Switch language">🇬🇧</button>
-    <section id="authGate" class="auth-shell">
-      <article class="auth-card">
-        <h1 data-i18n="app.title">Vanaco Working Force</h1>
-        <p data-i18n="auth.subtitle">Acceso por usuario y contraseña</p>
-        <form id="loginForm" class="auth-form">
-          <label class="field">
-            <span data-i18n="auth.username">Usuario</span>
-            <input id="usernameInput" type="text" required placeholder="admin" data-i18n-placeholder="auth.username_placeholder" />
-          </label>
-          <label class="field">
-            <span data-i18n="auth.password">Contraseña</span>
-            <input id="passwordInput" type="password" required placeholder="********" data-i18n-placeholder="auth.password_placeholder" />
-          </label>
-          <div class="auth-actions">
-            <button class="btn btn-primary" type="submit" data-i18n="auth.login">Entrar</button>
-            <button id="registerBtn" class="btn" type="button" data-i18n="auth.register">Registrarse</button>
-          </div>
-          <p id="authMessage" class="auth-message"></p>
-          <p id="appVersion" class="auth-version"></p>
-        </form>
-      </article>
-    </section>
-
-    <div id="appShell" class="hidden">
-      <header class="hero">
-        <div>
-          <h1 data-i18n="app.title">Vanaco Working Force</h1>
-          <p id="roleSummary" data-i18n="app.subtitle">Panel de gestión</p>
+    <header class="hero">
+      <nav class="top-nav">
+        <h1>Pokerivals</h1>
+        <div class="nav-right">
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Cambiar tema">
+            <span id="theme-icon">☀️</span>
+            <span id="theme-label">Luz</span>
+          </button>
+          <div class="nav-actions" id="nav-actions"></div>
         </div>
-        <div class="hero-actions">
-          <span id="userBadge"></span>
-          <button id="logoutBtn" class="btn" data-i18n="auth.logout">Cerrar sesión</button>
+      </nav>
+      <div class="hero-content">
+        <div class="hero-copy">
+          <p class="badge">Servidor de Minecraft inspirado en Pokemon</p>
+          <h2>Entrena, compite y domina Pokerivals.</h2>
+          <p>
+            Desbloquea ventajas, mejora tu progreso y consigue extras para destacar en cada aventura.
+          </p>
+          <a class="btn btn-main" href="#rangos">Ver tienda</a>
         </div>
-      </header>
+        <a
+          class="hero-logo-wrap"
+          href="https://discord.gg/CEHkg9gXE2"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Unirse al Discord de Pokerivals"
+        >
+          <img class="hero-logo" src="logo-pokerivals.png" alt="Logo de Pokerivals" />
+          <div class="hero-logo-fallback" id="hero-logo-fallback">POKERIVALS</div>
+        </a>
+      </div>
+    </header>
 
-      <main class="layout">
-        <section id="entryBar" class="panel entry-bar hidden">
-          <h2 data-i18n="entry.new_title">Nueva entrada</h2>
-          <form id="newEntryForm" class="entry-grid"></form>
-        </section>
+    <main>
+      <section class="section auth-section" id="auth-section">
+        <div class="section-title">
+          <h3>Iniciar sesión</h3>
+          <p>Usa tu nombre de Minecraft y una contraseña para esta web.</p>
+        </div>
 
-        <section class="panel controls">
-          <div class="controls-row">
-            <label class="field">
-              <span data-i18n="filters.search">Buscar</span>
-              <input id="searchInput" type="text" placeholder="Nombre, trabajo, estado..." data-i18n-placeholder="filters.search_placeholder" />
-            </label>
-            <label class="field">
-              <span data-i18n="filters.status">Filtro Estado</span>
-              <select id="statusFilter"><option value="">Todos</option></select>
-            </label>
-            <label class="field">
-              <span data-i18n="filters.payment">Filtro Pago</span>
-              <select id="paymentFilter"><option value="">Todos</option></select>
-            </label>
-          </div>
-          <div class="controls-row actions">
-            <button id="loadCsvBtn" class="btn" data-i18n="actions.import">Importar archivo</button>
-            <input id="csvInput" type="file" accept=".csv,.html,.htm" hidden />
-            <button id="downloadBtn" class="btn btn-primary" data-i18n="actions.export">Exportar CSV</button>
-            <button id="resetBtn" class="btn" data-i18n="actions.reload">Recargar nube</button>
-          </div>
-        </section>
+        <div class="auth-grid">
+          <form class="auth-form" id="login-form">
+            <h4>Entrar</h4>
+            <label for="login-username">Usuario Minecraft</label>
+            <input id="login-username" name="username" required maxlength="16" />
+            <label for="login-password">Contraseña</label>
+            <input id="login-password" name="password" type="password" required minlength="6" />
+            <button class="btn btn-main" type="submit">Iniciar sesión</button>
+          </form>
 
-        <section class="panel stats" id="stats"></section>
+          <form class="auth-form" id="register-form">
+            <h4>Crear cuenta</h4>
+            <label for="register-username">Usuario Minecraft</label>
+            <input id="register-username" name="username" required maxlength="16" />
+            <label for="register-password">Contraseña</label>
+            <input id="register-password" name="password" type="password" required minlength="6" />
+            <button class="btn btn-subtle" type="submit">Registrarse</button>
+          </form>
+        </div>
 
-        <section class="panel table-panel">
-          <div class="table-wrap">
-            <table id="dataTable"><thead></thead><tbody></tbody></table>
-          </div>
-        </section>
+        <p id="session-text">Comprobando sesión...</p>
+        <p class="status-message" id="status-message"></p>
+      </section>
 
-        <section id="adminPanel" class="panel hidden">
-          <h2 data-i18n="admin.panel_title">Panel Admin</h2>
-          <div class="admin-create">
-            <input id="newUserInput" type="text" placeholder="nuevo_usuario" data-i18n-placeholder="admin.new_user_placeholder" />
-            <input id="newUserPassInput" type="password" placeholder="contraseña" data-i18n-placeholder="admin.new_pass_placeholder" />
-            <label><input id="newUserAdminInput" type="checkbox" /> <span data-i18n="admin.admin_label">Admin</span></label>
-            <button id="createUserBtn" class="btn" data-i18n="admin.create_user">Crear usuario</button>
-          </div>
-          <div class="table-wrap">
-            <table id="membersTable">
-              <thead><tr><th data-i18n="admin.th_user">Usuario</th><th data-i18n="admin.th_role">Rol</th><th data-i18n="admin.th_active">Activo</th><th data-i18n="admin.th_actions">Acciones</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-    </div>
+      <section id="rangos" class="section">
+        <div class="section-title">
+          <h3>Rangos Pokemon</h3>
+          <p>Debes iniciar sesión para comprar.</p>
+        </div>
+        <div class="cards" id="cards-container"></div>
+      </section>
 
-    <script>
-      window.__showFatal = function (message) {
-        var authMessage = document.getElementById("authMessage");
-        if (authMessage) authMessage.textContent = "Error JS: " + message;
-      };
-      window.addEventListener("error", function (ev) { window.__showFatal(ev.message || "Error desconocido"); });
-      window.addEventListener("unhandledrejection", function (ev) {
-        var msg = ev && ev.reason && (ev.reason.message || String(ev.reason));
-        window.__showFatal(msg || "Promise rechazada sin detalle");
-      });
-    </script>
-    <script src="./app.js"></script>
+      <section id="extras" class="section section-alt">
+        <div class="section-title">
+          <h3>Extras</h3>
+          <p>Mejoras especiales y compras directas.</p>
+        </div>
+        <div class="cards" id="extras-container"></div>
+      </section>
+
+      <section class="section section-alt">
+        <div class="section-title">
+          <h3>Pago manual</h3>
+          <p>Si no hay pasarela activa, paga manualmente y espera validación del admin.</p>
+        </div>
+        <div class="manual-box" id="manual-box">
+          <p>Cargando instrucciones de pago...</p>
+        </div>
+      </section>
+
+      <section class="section section-alt">
+        <div class="section-title">
+          <h3>Mis pagos</h3>
+          <p>Historial de rangos registrados para tu cuenta.</p>
+        </div>
+        <div class="payments-box" id="payments-box">
+          <p>Inicia sesión para ver tus pagos.</p>
+        </div>
+      </section>
+
+      <section class="section section-alt admin-panel" id="admin-panel">
+        <div class="section-title">
+          <h3>Panel admin</h3>
+          <p>Revisa pedidos y márcalos como pagados.</p>
+        </div>
+        <div class="payments-box" id="admin-payments-box">
+          <p>Inicia sesión como admin para gestionar pagos.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>IP del servidor: <strong>play.pokerivals.net</strong></p>
+    </footer>
+
+    <script src="script.js"></script>
   </body>
 </html>

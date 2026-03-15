@@ -1,5 +1,4 @@
 const crypto = require("crypto");
-const path = require("path");
 const express = require("express");
 const dotenv = require("dotenv");
 const { createClient } = require("@supabase/supabase-js");
@@ -9,15 +8,41 @@ dotenv.config();
 const app = express();
 const localPort = Number(process.env.PORT || 3000);
 const isProduction = process.env.NODE_ENV === "production";
+const baseUrl =
+  process.env.BASE_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : `http://localhost:${localPort}`);
 
-const SESSION_COOKIE = "vanaco_session";
+const SESSION_COOKIE = "aethelgard_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const ROW_LOAD_LIMIT = 2000;
+const paymentLinkTemplate = String(process.env.PAYMENT_LINK_TEMPLATE || "").trim();
+const manualPaymentMethod = String(process.env.MANUAL_PAYMENT_METHOD || "Bizum").trim();
+const manualPaymentDestination = String(process.env.MANUAL_PAYMENT_DESTINATION || "").trim();
+const manualPaymentNote = String(process.env.MANUAL_PAYMENT_NOTE || "").trim();
+const discordWebhookUrl = String(process.env.DISCORD_WEBHOOK_URL || "").trim();
+const gumroadPingToken = String(process.env.GUMROAD_PING_TOKEN || "").trim();
+const adminMinecraftUsers = new Set(
+  String(process.env.ADMIN_MINECRAFT_USERS || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+const ranks = [
+  { name: "🔴 Superball", amountEurCents: 700 },
+  { name: "🔵 Ultra Ball", amountEurCents: 1200 },
+  { name: "🟣 Máster ball", amountEurCents: 1500 },
+  { name: "👑 Maestro", amountEurCents: 2500 },
+];
+
+const extras = [
+  { name: "🎯 5 master balls", amountEurCents: 1000 },
+  { name: "✨ Pokemon legendario 6x31", amountEurCents: 500 },
+];
 
 const requiredEnv = ["SESSION_SECRET", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
 for (const key of requiredEnv) {
   if (!process.env[key]) {
-    console.warn(`[warn] Missing ${key}.`);
+    console.warn(`[warn] Missing ${key}. Some features will fail until configured.`);
   }
 }
 
@@ -28,20 +53,111 @@ const supabase = hasSupabase
     })
   : null;
 
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
 app.get("/", (_req, res) => {
   res.sendFile("index.html", { root: __dirname });
 });
 
-function ensureSupabaseConfigured() {
-  if (!supabase) {
-    const error = new Error("Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en variables de entorno.");
-    error.status = 500;
-    throw error;
+function formatCurrencyAmount(value, currency = "EUR") {
+  if (value === undefined || value === null || value === "") {
+    return null;
   }
+  const raw = String(value).trim();
+  if (/^\\d+$/.test(raw)) {
+    const cents = Number(raw);
+    return `${(cents / 100).toFixed(2)} ${currency}`;
+  }
+  return `${raw} ${currency}`;
 }
+
+function extractDiscordHandle(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  const fromCustomFields = payload.custom_fields;
+  if (fromCustomFields) {
+    let fields = fromCustomFields;
+    if (typeof fromCustomFields === "string") {
+      try {
+        fields = JSON.parse(fromCustomFields);
+      } catch {
+        fields = null;
+      }
+    }
+    if (fields && typeof fields === "object") {
+      for (const [key, value] of Object.entries(fields)) {
+        if (String(key).toLowerCase().includes("discord") && value) {
+          return String(value).trim();
+        }
+      }
+    }
+  }
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (String(key).toLowerCase().includes("discord") && value) {
+      return String(value).trim();
+    }
+  }
+
+  return null;
+}
+
+function isValidGumroadPing(req) {
+  if (!gumroadPingToken) {
+    return true;
+  }
+  return String(req.query?.token || "") === gumroadPingToken;
+}
+
+app.post(
+  "/api/gumroad/ping",
+  asyncHandler(async (req, res) => {
+    if (!isValidGumroadPing(req)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const payload = req.body || {};
+    const productName = payload.product_name || payload.product || payload.productName;
+    const buyerEmail = payload.email || payload.buyer_email || payload.buyerEmail;
+    const buyerName = payload.name || payload.buyer_name || payload.full_name;
+    const currency = payload.currency || payload.sale_currency || "EUR";
+    const price = formatCurrencyAmount(payload.price || payload.price_cents || payload.amount, currency);
+    const discordHandle = extractDiscordHandle(payload);
+    const isTest =
+      String(payload.test || payload.is_test || payload.test_purchase || "").toLowerCase() === "true";
+
+    if (discordWebhookUrl) {
+      const lines = ["Nueva compra en Gumroad" + (isTest ? " (test)" : "")];
+      if (productName) {
+        lines.push(`Producto: ${productName}`);
+      }
+      if (price) {
+        lines.push(`Importe: ${price}`);
+      }
+      if (buyerEmail) {
+        lines.push(`Email: ${buyerEmail}`);
+      }
+      if (discordHandle) {
+        lines.push(`Discord: ${discordHandle}`);
+      } else if (buyerName) {
+        lines.push(`Nombre (checkout): ${buyerName}`);
+      }
+
+      await fetch(discordWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: lines.join("\\n") }),
+      });
+    }
+
+    res.json({ ok: true });
+  })
+);
 
 function getSigningSecret() {
   return process.env.SESSION_SECRET || "change-me";
@@ -52,11 +168,16 @@ function signValue(value) {
 }
 
 function parseCookies(header) {
-  if (!header) return {};
+  if (!header) {
+    return {};
+  }
+
   const result = {};
   for (const pair of header.split(";")) {
     const index = pair.indexOf("=");
-    if (index < 0) continue;
+    if (index < 0) {
+      continue;
+    }
     const key = pair.slice(0, index).trim();
     const value = pair.slice(index + 1).trim();
     result[key] = decodeURIComponent(value);
@@ -75,11 +196,17 @@ function appendSetCookie(res, cookieValue) {
 
 function serializeCookie(name, value, options = {}) {
   const attributes = [`${name}=${encodeURIComponent(value)}`];
-  if (options.maxAge !== undefined) attributes.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+  if (options.maxAge !== undefined) {
+    attributes.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+  }
   attributes.push(`Path=${options.path || "/"}`);
-  if (options.httpOnly !== false) attributes.push("HttpOnly");
+  if (options.httpOnly !== false) {
+    attributes.push("HttpOnly");
+  }
   attributes.push(`SameSite=${options.sameSite || "Lax"}`);
-  if (options.secure) attributes.push("Secure");
+  if (options.secure) {
+    attributes.push("Secure");
+  }
   return attributes.join("; ");
 }
 
@@ -90,11 +217,20 @@ function createSignedPayload(payload) {
 }
 
 function verifySignedPayload(value) {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
+
   const parts = value.split(".");
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2) {
+    return null;
+  }
+
   const [encoded, signature] = parts;
-  if (signValue(encoded) !== signature) return null;
+  if (signValue(encoded) !== signature) {
+    return null;
+  }
+
   try {
     return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
   } catch {
@@ -127,7 +263,9 @@ function clearSessionCookie(res) {
 function readSession(req) {
   const cookies = parseCookies(req.headers.cookie);
   const payload = verifySignedPayload(cookies[SESSION_COOKIE]);
-  if (!payload || payload.exp < Date.now() || !payload.userId) return null;
+  if (!payload || payload.exp < Date.now() || !payload.userId) {
+    return null;
+  }
   return payload;
 }
 
@@ -137,12 +275,28 @@ function asyncHandler(handler) {
   };
 }
 
-function normalizeUsername(username) {
-  return String(username || "").trim().toLowerCase();
+function ensureSupabaseConfigured() {
+  if (!supabase) {
+    const error = new Error("Falta configurar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.");
+    error.status = 500;
+    throw error;
+  }
 }
 
-function isValidUsername(username) {
-  return /^[a-zA-Z0-9_]{3,32}$/.test(username);
+function normalizeMinecraftUsername(username) {
+  return String(username || "").trim();
+}
+
+function isAdminUsername(username) {
+  return adminMinecraftUsers.has(normalizeMinecraftUsername(username).toLowerCase());
+}
+
+function getMinecraftKey(username) {
+  return `offline:${normalizeMinecraftUsername(username).toLowerCase()}`;
+}
+
+function isValidMinecraftUsername(username) {
+  return /^[A-Za-z0-9_]{3,16}$/.test(username);
 }
 
 function hashPassword(password) {
@@ -153,175 +307,183 @@ function hashPassword(password) {
 
 function verifyPassword(password, stored) {
   const [salt, expectedHash] = String(stored || "").split(":");
-  if (!salt || !expectedHash) return false;
+  if (!salt || !expectedHash) {
+    return false;
+  }
   const currentHash = crypto.scryptSync(password, salt, 64).toString("hex");
   const a = Buffer.from(currentHash, "hex");
   const b = Buffer.from(expectedHash, "hex");
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
   return crypto.timingSafeEqual(a, b);
-}
-
-async function usersCount() {
-  ensureSupabaseConfigured();
-  const { count, error } = await supabase.from("app_users").select("id", { head: true, count: "exact" });
-  if (error) throw new Error(`Supabase users count failed: ${error.message}`);
-  return Number(count || 0);
 }
 
 async function getUserById(userId) {
   ensureSupabaseConfigured();
   const { data, error } = await supabase
-    .from("app_users")
-    .select("id,username,password_hash,is_admin,is_active,created_at")
+    .from("users")
+    .select("id,minecraft_uuid,minecraft_name,email,password_hash")
     .eq("id", userId)
     .maybeSingle();
-  if (error) throw new Error(`Supabase get user failed: ${error.message}`);
+
+  if (error) {
+    throw new Error(`Supabase get user failed: ${error.message}`);
+  }
   return data || null;
 }
 
-async function getUserByUsername(username) {
+async function getUserByMinecraftName(username) {
   ensureSupabaseConfigured();
+  const uuidKey = getMinecraftKey(username);
   const { data, error } = await supabase
-    .from("app_users")
-    .select("id,username,password_hash,is_admin,is_active,created_at")
-    .eq("username", normalizeUsername(username))
+    .from("users")
+    .select("id,minecraft_uuid,minecraft_name,email,password_hash")
+    .eq("minecraft_uuid", uuidKey)
     .maybeSingle();
-  if (error) throw new Error(`Supabase get user by username failed: ${error.message}`);
+
+  if (error) {
+    throw new Error(`Supabase get user by name failed: ${error.message}`);
+  }
   return data || null;
 }
 
-async function createUser({ username, password, isAdmin = false, isActive = true }) {
+async function createUser(username, password) {
   ensureSupabaseConfigured();
-  const normalized = normalizeUsername(username);
+  const passwordHash = hashPassword(password);
   const { data, error } = await supabase
-    .from("app_users")
+    .from("users")
     .insert({
-      username: normalized,
-      password_hash: hashPassword(password),
-      is_admin: Boolean(isAdmin),
-      is_active: Boolean(isActive),
+      microsoft_sub: null,
+      minecraft_uuid: getMinecraftKey(username),
+      minecraft_name: username,
+      email: null,
+      password_hash: passwordHash,
     })
-    .select("id,username,is_admin,is_active,created_at")
+    .select("id,minecraft_uuid,minecraft_name,email,password_hash")
     .single();
 
-  if (error) throw new Error(`Supabase create user failed: ${error.message}`);
+  if (error) {
+    throw new Error(`Supabase create user failed: ${error.message}`);
+  }
   return data;
 }
 
-async function listUsers() {
+async function insertPayment(userId, rank) {
   ensureSupabaseConfigured();
   const { data, error } = await supabase
-    .from("app_users")
-    .select("id,username,is_admin,is_active,created_at")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(`Supabase list users failed: ${error.message}`);
+    .from("payments")
+    .insert({
+      user_id: userId,
+      rank_name: rank.name,
+      amount_eur_cents: rank.amountEurCents,
+      status: "pending",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    throw new Error(`Supabase create payment failed: ${error.message}`);
+  }
+  return data;
+}
+
+async function listUserPayments(userId) {
+  ensureSupabaseConfigured();
+  const { data, error } = await supabase
+    .from("payments")
+    .select("id,rank_name,amount_eur_cents,status,created_at,paid_at")
+    .eq("user_id", userId)
+    .order("id", { ascending: false });
+
+  if (error) {
+    throw new Error(`Supabase list payments failed: ${error.message}`);
+  }
   return data || [];
 }
 
-async function updateUser(userId, patch) {
+async function listAllPayments() {
   ensureSupabaseConfigured();
-  const payload = {};
-  if (typeof patch.is_admin === "boolean") payload.is_admin = patch.is_admin;
-  if (typeof patch.is_active === "boolean") payload.is_active = patch.is_active;
-  if (patch.password && String(patch.password).trim()) payload.password_hash = hashPassword(String(patch.password));
+  const { data, error } = await supabase
+    .from("payments")
+    .select(
+      "id,rank_name,amount_eur_cents,status,created_at,paid_at,users!inner(minecraft_name,minecraft_uuid)"
+    )
+    .order("id", { ascending: false });
+
+  if (error) {
+    throw new Error(`Supabase list admin payments failed: ${error.message}`);
+  }
+
+  return (data || []).map((item) => ({
+    id: item.id,
+    rank_name: item.rank_name,
+    amount_eur_cents: item.amount_eur_cents,
+    status: item.status,
+    created_at: item.created_at,
+    paid_at: item.paid_at,
+    minecraft_name: item.users?.minecraft_name || null,
+    minecraft_uuid: item.users?.minecraft_uuid || null,
+  }));
+}
+
+async function markPaymentPaid(paymentId, providerRef) {
+  ensureSupabaseConfigured();
+  const updatePayload = {
+    status: "paid",
+    paid_at: new Date().toISOString(),
+  };
+
+  if (providerRef) {
+    updatePayload.provider_ref = providerRef;
+  }
 
   const { data, error } = await supabase
-    .from("app_users")
-    .update(payload)
-    .eq("id", userId)
-    .select("id,username,is_admin,is_active,created_at")
+    .from("payments")
+    .update(updatePayload)
+    .eq("id", paymentId)
+    .select("id")
     .maybeSingle();
 
-  if (error) throw new Error(`Supabase update user failed: ${error.message}`);
+  if (error) {
+    throw new Error(`Supabase mark paid failed: ${error.message}`);
+  }
+
   return data;
 }
 
-async function listEntries(limit) {
-  ensureSupabaseConfigured();
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 500, ROW_LOAD_LIMIT));
-  let query = supabase
-    .from("workforce_entries")
-    .select("id,data,created_at,updated_at")
-    .order("created_at", { ascending: false })
-    .limit(safeLimit);
-
-  const { data, error } = await query.eq("is_deleted", false);
-  if (error) {
-    const fallback = await supabase
-      .from("workforce_entries")
-      .select("id,data,created_at,updated_at")
-      .order("created_at", { ascending: false })
-      .limit(safeLimit);
-    if (fallback.error) throw new Error(`Supabase list entries failed: ${fallback.error.message}`);
-    return fallback.data || [];
+function buildPaymentLink({ paymentId, rankName, username, amountEurCents }) {
+  if (!paymentLinkTemplate) {
+    return null;
   }
 
-  return data || [];
-}
-
-async function createEntry(data) {
-  ensureSupabaseConfigured();
-  const { data: row, error } = await supabase
-    .from("workforce_entries")
-    .insert({ data: data || {}, is_deleted: false })
-    .select("id,data,created_at,updated_at")
-    .single();
-
-  if (error) {
-    const fallback = await supabase
-      .from("workforce_entries")
-      .insert({ data: data || {} })
-      .select("id,data,created_at,updated_at")
-      .single();
-    if (fallback.error) throw new Error(`Supabase create entry failed: ${fallback.error.message}`);
-    return fallback.data;
-  }
-
-  return row;
-}
-
-async function updateEntry(id, data) {
-  ensureSupabaseConfigured();
-  const { error } = await supabase.from("workforce_entries").update({ data: data || {} }).eq("id", id);
-  if (error) throw new Error(`Supabase update entry failed: ${error.message}`);
-}
-
-async function deleteEntry(id) {
-  ensureSupabaseConfigured();
-  const soft = await supabase.from("workforce_entries").update({ is_deleted: true }).eq("id", id);
-  if (!soft.error) return;
-  const hard = await supabase.from("workforce_entries").delete().eq("id", id);
-  if (hard.error) throw new Error(`Supabase delete entry failed: ${hard.error.message}`);
-}
-
-async function replaceEntries(rows) {
-  ensureSupabaseConfigured();
-  const mark = await supabase.from("workforce_entries").update({ is_deleted: true }).eq("is_deleted", false);
-  if (mark.error) {
-    const hardDelete = await supabase.from("workforce_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    if (hardDelete.error) throw new Error(`Supabase replace delete failed: ${hardDelete.error.message}`);
-  }
-
-  if (!Array.isArray(rows) || rows.length === 0) return;
-
-  const payload = rows.map((item) => ({ data: item || {}, is_deleted: false }));
-  const insert = await supabase.from("workforce_entries").insert(payload);
-  if (insert.error) {
-    const fallback = await supabase.from("workforce_entries").insert(rows.map((item) => ({ data: item || {} })));
-    if (fallback.error) throw new Error(`Supabase replace insert failed: ${fallback.error.message}`);
-  }
+  return paymentLinkTemplate
+    .replaceAll("{payment_id}", encodeURIComponent(String(paymentId)))
+    .replaceAll("{rank}", encodeURIComponent(rankName))
+    .replaceAll("{username}", encodeURIComponent(username))
+    .replaceAll("{amount_eur}", encodeURIComponent((amountEurCents / 100).toFixed(2)));
 }
 
 function requireAuth(req, res, next) {
   const session = readSession(req);
-  if (!session) return res.status(401).json({ error: "Debes iniciar sesión." });
+  if (!session) {
+    return res.status(401).json({ error: "Debes iniciar sesión." });
+  }
   req.sessionUserId = session.userId;
   next();
 }
 
-const requireAdmin = asyncHandler(async (req, res, next) => {
+function requireAdmin(req, res, next) {
+  const token = req.get("x-admin-token");
+  if (!process.env.ADMIN_TOKEN || token !== process.env.ADMIN_TOKEN) {
+    return res.status(403).json({ error: "Admin token inválido." });
+  }
+  next();
+}
+
+const requireAdminSession = asyncHandler(async (req, res, next) => {
   const user = await getUserById(req.sessionUserId);
-  if (!user || !user.is_active || !user.is_admin) {
+  if (!user || !isAdminUsername(user.minecraft_name)) {
     return res.status(403).json({ error: "Solo admins pueden hacer esto." });
   }
   req.sessionUser = user;
@@ -331,79 +493,68 @@ const requireAdmin = asyncHandler(async (req, res, next) => {
 app.post(
   "/auth/register",
   asyncHandler(async (req, res) => {
-    const username = normalizeUsername(req.body.username);
+    const username = normalizeMinecraftUsername(req.body.username);
     const password = String(req.body.password || "");
 
-    if (!isValidUsername(username)) {
-      return res.status(400).json({ error: "Usuario inválido (3-32, letras/números/_)." });
+    if (!isValidMinecraftUsername(username)) {
+      return res.status(400).json({ error: "El usuario debe parecer un nombre válido de Minecraft (3-16, letras/números/_)." });
     }
+
     if (password.length < 6) {
       return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres." });
     }
 
-    const existing = await getUserByUsername(username);
+    const existing = await getUserByMinecraftName(username);
     if (existing) {
-      return res.status(409).json({ error: "Ese usuario ya existe." });
+      return res.status(409).json({ error: "Ese usuario ya está registrado." });
     }
 
-    const count = await usersCount();
-    const isFirstUser = count === 0;
+    const user = await createUser(username, password);
+    setSessionCookie(res, user.id);
 
-    const user = await createUser({
-      username,
-      password,
-      isAdmin: isFirstUser,
-      isActive: isFirstUser,
+    res.status(201).json({
+      message: "Cuenta creada correctamente.",
+      user: { id: user.id, minecraft_name: user.minecraft_name, minecraft_uuid: user.minecraft_uuid },
     });
-
-    if (isFirstUser) {
-      setSessionCookie(res, user.id);
-      return res.status(201).json({
-        message: "Primer admin creado y sesión iniciada.",
-        user: {
-          id: user.id,
-          username: user.username,
-          is_admin: user.is_admin,
-          is_active: user.is_active,
-        },
-      });
-    }
-
-    return res.status(201).json({ message: "Usuario creado. Pendiente de activación por admin." });
   })
 );
 
 app.post(
   "/auth/login",
   asyncHandler(async (req, res) => {
-    const username = normalizeUsername(req.body.username);
+    const username = normalizeMinecraftUsername(req.body.username);
     const password = String(req.body.password || "");
 
-    const user = await getUserByUsername(username);
+    const user = await getUserByMinecraftName(username);
     if (!user || !verifyPassword(password, user.password_hash)) {
       return res.status(401).json({ error: "Usuario o contraseña incorrectos." });
     }
 
-    if (!user.is_active) {
-      return res.status(403).json({ error: "Tu cuenta está pendiente de aprobación por un admin." });
-    }
-
     setSessionCookie(res, user.id);
-    res.json({
-      message: "Sesión iniciada.",
-      user: {
-        id: user.id,
-        username: user.username,
-        is_admin: user.is_admin,
-        is_active: user.is_active,
-      },
-    });
+    res.json({ message: "Sesión iniciada.", user: { id: user.id, minecraft_name: user.minecraft_name } });
   })
 );
 
 app.get("/auth/logout", (_req, res) => {
   clearSessionCookie(res);
-  res.json({ ok: true });
+  res.redirect("/");
+});
+
+app.get("/api/ranks", (_req, res) => {
+  res.json({ ranks });
+});
+
+app.get("/api/extras", (_req, res) => {
+  res.json({ extras });
+});
+
+app.get("/api/payment-instructions", (_req, res) => {
+  res.json({
+    hasExternalCheckout: Boolean(paymentLinkTemplate),
+    method: manualPaymentMethod,
+    destination: manualPaymentDestination,
+    note: manualPaymentNote,
+  });
 });
 
 app.get(
@@ -415,7 +566,7 @@ app.get(
     }
 
     const user = await getUserById(session.userId);
-    if (!user || !user.is_active) {
+    if (!user) {
       clearSessionCookie(res);
       return res.json({ loggedIn: false, user: null });
     }
@@ -424,111 +575,175 @@ app.get(
       loggedIn: true,
       user: {
         id: user.id,
-        username: user.username,
-        is_admin: user.is_admin,
-        is_active: user.is_active,
+        minecraft_name: user.minecraft_name,
+        minecraft_uuid: user.minecraft_uuid,
+        isAdmin: isAdminUsername(user.minecraft_name),
       },
     });
   })
 );
 
 app.get(
-  "/api/entries",
+  "/api/payments/me",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const rows = await listEntries(req.query.limit);
-    res.json({ rows });
+    const payments = await listUserPayments(req.sessionUserId);
+    res.json({ payments });
   })
 );
 
 app.post(
-  "/api/entries",
+  "/api/payments",
   requireAuth,
-  requireAdmin,
   asyncHandler(async (req, res) => {
-    const row = await createEntry(req.body.data || {});
-    res.status(201).json({ ok: true, row });
-  })
-);
+    const rankName = String(req.body.rankName || "").trim();
+    const rank = ranks.find((item) => item.name === rankName);
 
-app.put(
-  "/api/entries/:id",
-  requireAuth,
-  requireAdmin,
-  asyncHandler(async (req, res) => {
-    await updateEntry(req.params.id, req.body.data || {});
-    res.json({ ok: true });
-  })
-);
+    if (!rank) {
+      return res.status(400).json({ error: "Rango inválido." });
+    }
 
-app.delete(
-  "/api/entries/:id",
-  requireAuth,
-  requireAdmin,
-  asyncHandler(async (req, res) => {
-    await deleteEntry(req.params.id);
-    res.json({ ok: true });
+    const payment = await insertPayment(req.sessionUserId, rank);
+    const user = await getUserById(req.sessionUserId);
+    const paymentUrl = buildPaymentLink({
+      paymentId: payment.id,
+      rankName: rank.name,
+      username: user?.minecraft_name || "jugador",
+      amountEurCents: rank.amountEurCents,
+    });
+
+    res.status(201).json({
+      paymentId: payment.id,
+      paymentUrl,
+      message: paymentUrl
+        ? "Pedido creado. Te redirigimos al pago."
+        : "Pago registrado en estado pendiente. Configura PAYMENT_LINK_TEMPLATE para redirigir a pago.",
+    });
   })
 );
 
 app.post(
-  "/api/entries/replace",
+  "/api/extras/purchase",
   requireAuth,
-  requireAdmin,
   asyncHandler(async (req, res) => {
-    await replaceEntries(req.body.rows || []);
-    res.json({ ok: true });
+    const extraName = String(req.body.extraName || "").trim();
+    const extra = extras.find((item) => item.name === extraName);
+    if (!extra) {
+      return res.status(400).json({ error: "Extra inválido." });
+    }
+
+    const payment = await insertPayment(req.sessionUserId, extra);
+    const user = await getUserById(req.sessionUserId);
+    const paymentUrl = buildPaymentLink({
+      paymentId: payment.id,
+      rankName: extra.name,
+      username: user?.minecraft_name || "jugador",
+      amountEurCents: extra.amountEurCents,
+    });
+
+    res.status(201).json({
+      paymentId: payment.id,
+      paymentUrl,
+      message: paymentUrl
+        ? "Pedido creado. Te redirigimos al pago."
+        : "Compra registrada en estado pendiente.",
+    });
+  })
+);
+
+app.post(
+  "/api/admin/grant-rank",
+  requireAuth,
+  requireAdminSession,
+  asyncHandler(async (req, res) => {
+    const rankName = String(req.body.rankName || "").trim();
+    const rank = ranks.find((item) => item.name === rankName);
+    if (!rank) {
+      return res.status(400).json({ error: "Rango inválido." });
+    }
+
+    const payment = await insertPayment(req.sessionUserId, rank);
+    await markPaymentPaid(payment.id, "admin-grant");
+
+    res.json({ ok: true, message: `Rango ${rank.name} activado gratis para admin.` });
+  })
+);
+
+app.post(
+  "/api/admin/grant-extra",
+  requireAuth,
+  requireAdminSession,
+  asyncHandler(async (req, res) => {
+    const extraName = String(req.body.extraName || "").trim();
+    const extra = extras.find((item) => item.name === extraName);
+    if (!extra) {
+      return res.status(400).json({ error: "Extra inválido." });
+    }
+
+    const payment = await insertPayment(req.sessionUserId, extra);
+    await markPaymentPaid(payment.id, "admin-grant-extra");
+
+    res.json({ ok: true, message: `${extra.name} activado gratis para admin.` });
   })
 );
 
 app.get(
-  "/api/admin/users",
-  requireAuth,
+  "/api/admin/payments",
   requireAdmin,
   asyncHandler(async (_req, res) => {
-    const users = await listUsers();
-    res.json({ users });
+    const payments = await listAllPayments();
+    res.json({ payments });
+  })
+);
+
+app.get(
+  "/api/admin/payments-session",
+  requireAuth,
+  requireAdminSession,
+  asyncHandler(async (_req, res) => {
+    const payments = await listAllPayments();
+    res.json({ payments });
   })
 );
 
 app.post(
-  "/api/admin/users",
-  requireAuth,
+  "/api/admin/payments/:id/mark-paid",
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const username = normalizeUsername(req.body.username);
-    const password = String(req.body.password || "");
-    const isAdmin = Boolean(req.body.is_admin);
-    const isActive = req.body.is_active !== false;
-
-    if (!isValidUsername(username)) {
-      return res.status(400).json({ error: "Usuario inválido (3-32, letras/números/_)." });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres." });
+    const paymentId = Number(req.params.id);
+    if (!Number.isInteger(paymentId) || paymentId < 1) {
+      return res.status(400).json({ error: "ID inválido." });
     }
 
-    const existing = await getUserByUsername(username);
-    if (existing) return res.status(409).json({ error: "Ese usuario ya existe." });
+    const providerRef = req.body.providerRef ? String(req.body.providerRef) : null;
+    const updated = await markPaymentPaid(paymentId, providerRef);
 
-    const user = await createUser({ username, password, isAdmin, isActive });
-    res.status(201).json({ ok: true, user });
+    if (!updated) {
+      return res.status(404).json({ error: "Pago no encontrado." });
+    }
+
+    res.json({ ok: true });
   })
 );
 
-app.patch(
-  "/api/admin/users/:id",
+app.post(
+  "/api/admin/payments/:id/mark-paid-session",
   requireAuth,
-  requireAdmin,
+  requireAdminSession,
   asyncHandler(async (req, res) => {
-    const patch = {
-      is_admin: req.body.is_admin,
-      is_active: req.body.is_active,
-      password: req.body.password,
-    };
-    const user = await updateUser(req.params.id, patch);
-    if (!user) return res.status(404).json({ error: "Usuario no encontrado." });
-    res.json({ ok: true, user });
+    const paymentId = Number(req.params.id);
+    if (!Number.isInteger(paymentId) || paymentId < 1) {
+      return res.status(400).json({ error: "ID inválido." });
+    }
+
+    const providerRef = req.body.providerRef ? String(req.body.providerRef) : "manual-admin-panel";
+    const updated = await markPaymentPaid(paymentId, providerRef);
+
+    if (!updated) {
+      return res.status(404).json({ error: "Pago no encontrado." });
+    }
+
+    res.json({ ok: true, message: "Pago marcado como completado." });
   })
 );
 
@@ -536,7 +751,9 @@ app.use((error, _req, res, _next) => {
   console.error("[server-error]", error);
   const status = Number(error.status) || 500;
   const message = error.message || "Error interno del servidor";
-  if (res.headersSent) return;
+  if (res.headersSent) {
+    return;
+  }
   res.status(status).json({ error: message });
 });
 
@@ -544,6 +761,6 @@ if (process.env.VERCEL) {
   module.exports = app;
 } else {
   app.listen(localPort, () => {
-    console.log(`Vanaco server running on http://localhost:${localPort}`);
+    console.log(`Aethelgard web running on ${baseUrl}`);
   });
 }

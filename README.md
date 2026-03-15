@@ -1,31 +1,67 @@
-# Vanaco Working Force
+# Aethelgard Web (Vercel + Supabase)
 
-Proyecto migrado a arquitectura **server-side** (como `Pagina web geopolitico`):
-- Frontend: `index.html` + `app.js` + `styles.css`
-- Backend: `server.js` (Express)
-- DB: tablas directas en Supabase (sin RPC para login)
+Web para venta de rangos de Minecraft con:
+- Registro/Login por usuario y contraseña
+- El usuario debe ser un nombre válido de Minecraft (3-16, letras/números/_)
+- Enlace de pago externo configurable (PayPal/Tebex/etc.)
+- Usuarios admin con activación gratis de rangos
+- Base de datos remota en Supabase
+- Backend serverless compatible con Vercel
 
-## 1) SQL en Supabase
-Ejecuta completo:
-- [/Users/rotumerorontum/Documents/Pagina gestion/supabase-server-schema.sql](/Users/rotumerorontum/Documents/Pagina%20gestion/supabase-server-schema.sql)
+## 1) Instalar
 
-## 2) Variables en Vercel
-En el proyecto `vanacoworkingforces.vercel.app` configura:
+```bash
+npm install
+```
+
+## 2) Configurar entorno local
+
+```bash
+cp .env.example .env
+```
+
+Completa en `.env`:
+- `SESSION_SECRET`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SESSION_SECRET` (cadena larga aleatoria)
+- `ADMIN_TOKEN`
+- `ADMIN_MINECRAFT_USERS` (lista separada por comas)
+- `PAYMENT_LINK_TEMPLATE` (opcional)
 
-## 3) Deploy
-Sube a GitHub estos archivos clave:
-- [/Users/rotumerorontum/Documents/Pagina gestion/server.js](/Users/rotumerorontum/Documents/Pagina%20gestion/server.js)
-- [/Users/rotumerorontum/Documents/Pagina gestion/package.json](/Users/rotumerorontum/Documents/Pagina%20gestion/package.json)
-- [/Users/rotumerorontum/Documents/Pagina gestion/vercel.json](/Users/rotumerorontum/Documents/Pagina%20gestion/vercel.json)
-- [/Users/rotumerorontum/Documents/Pagina gestion/index.html](/Users/rotumerorontum/Documents/Pagina%20gestion/index.html)
-- [/Users/rotumerorontum/Documents/Pagina gestion/app.js](/Users/rotumerorontum/Documents/Pagina%20gestion/app.js)
-- [/Users/rotumerorontum/Documents/Pagina gestion/styles.css](/Users/rotumerorontum/Documents/Pagina%20gestion/styles.css)
+## 3) Crear tablas en Supabase
 
-## 4) Flujo de usuarios
-- Registro normal: crea usuario en estado pendiente (`is_active=false`).
-- Primer registro del sistema: se crea como admin activo automáticamente.
-- Solo admin puede activar/bloquear usuarios, hacer/quitar admin y editar datos.
-- Usuario normal: solo lectura.
+En Supabase SQL Editor, ejecuta:
+- `supabase-schema.sql`
+
+## 4) Ejecutar local
+
+```bash
+npm run dev
+```
+
+Abrir: `http://localhost:3000`
+
+## 5) Deploy en Vercel
+
+En Vercel -> Project Settings -> Environment Variables, define:
+- `BASE_URL`
+- `SESSION_SECRET`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_TOKEN`
+- `ADMIN_MINECRAFT_USERS`
+- `PAYMENT_LINK_TEMPLATE` (opcional)
+
+Luego redeploy.
+
+## Endpoints clave
+
+- `POST /auth/register` crea cuenta
+- `POST /auth/login` inicia sesión
+- `GET /auth/logout` cierra sesión
+- `GET /api/session` estado de sesión
+- `POST /api/payments` crea pago pendiente para usuario logeado
+- `GET /api/payments/me` lista pagos del usuario
+- `POST /api/admin/grant-rank` activa rango gratis para admins logeados
+- `GET /api/admin/payments` (header `x-admin-token`)
+- `POST /api/admin/payments/:id/mark-paid` (header `x-admin-token`)
