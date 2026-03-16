@@ -59,6 +59,7 @@ const el = {
   pricePerBlock: document.getElementById("pricePerBlock"),
   distanceResult: document.getElementById("distanceResult"),
   costResult: document.getElementById("costResult"),
+  manualMessage: document.getElementById("manualMessage"),
 };
 
 const I18N = {
@@ -618,6 +619,14 @@ function setAuthMessage(message, tone = "info") {
   else el.authMessage.style.color = "var(--muted)";
 }
 
+function setManualMessage(message, tone = "info") {
+  if (!el.manualMessage) return;
+  el.manualMessage.textContent = message;
+  if (tone === "error") el.manualMessage.style.color = "var(--danger)";
+  else if (tone === "success") el.manualMessage.style.color = "var(--accent)";
+  else el.manualMessage.style.color = "var(--muted)";
+}
+
 function t(key) {
   return (I18N[state.lang] && I18N[state.lang][key]) || I18N.es[key] || key;
 }
@@ -668,19 +677,28 @@ async function loadCities() {
 
 async function onAddCity(event) {
   event.preventDefault();
+  if (!state.user?.is_admin) {
+    setManualMessage(t("actions.admin_only"), "error");
+    return;
+  }
   const country = String(el.manualCountry.value || "").trim();
   const city = String(el.manualCity.value || "").trim();
   const x = Number(el.manualX.value);
   const z = Number(el.manualZ.value);
   if (!country || !city || !Number.isFinite(x) || !Number.isFinite(z)) {
-    setAuthMessage(t("actions.invalid_file"), "error");
+    setManualMessage(t("actions.invalid_file"), "error");
     return;
   }
-  await apiPost("/api/cities", { country, city, x, z });
-  await loadCities();
-  el.manualForm.reset();
-  renderCitySelectors();
-  updateDistance();
+  try {
+    await apiPost("/api/cities", { country, city, x, z });
+    await loadCities();
+    el.manualForm.reset();
+    renderCitySelectors();
+    updateDistance();
+    setManualMessage("", "info");
+  } catch (e) {
+    setManualMessage(e.message || String(e), "error");
+  }
 }
 
 function uniqueCountries() {

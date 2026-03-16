@@ -236,6 +236,34 @@ async function updateUser(userId, patch) {
   return data;
 }
 
+async function listCities() {
+  ensureSupabaseConfigured();
+  const { data, error } = await supabase
+    .from("manual_cities")
+    .select("id,country,city,x,z,created_at,updated_at")
+    .order("country", { ascending: true })
+    .order("city", { ascending: true });
+  if (error) throw new Error(`Supabase list cities failed: ${error.message}`);
+  return data || [];
+}
+
+async function upsertCity(payload) {
+  ensureSupabaseConfigured();
+  const row = {
+    country: String(payload.country || "").trim(),
+    city: String(payload.city || "").trim(),
+    x: Number(payload.x),
+    z: Number(payload.z),
+  };
+  const { data, error } = await supabase
+    .from("manual_cities")
+    .upsert(row, { onConflict: "country,city" })
+    .select("id,country,city,x,z,created_at,updated_at")
+    .single();
+  if (error) throw new Error(`Supabase upsert city failed: ${error.message}`);
+  return data;
+}
+
 async function listEntries(limit) {
   ensureSupabaseConfigured();
   const safeLimit = Math.max(1, Math.min(Number(limit) || 500, ROW_LOAD_LIMIT));
@@ -438,6 +466,25 @@ app.get(
   asyncHandler(async (req, res) => {
     const rows = await listEntries(req.query.limit);
     res.json({ rows });
+  })
+);
+
+app.get(
+  "/api/cities",
+  requireAuth,
+  asyncHandler(async (_req, res) => {
+    const cities = await listCities();
+    res.json({ cities });
+  })
+);
+
+app.post(
+  "/api/cities",
+  requireAuth,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const city = await upsertCity(req.body || {});
+    res.status(201).json({ ok: true, city });
   })
 );
 

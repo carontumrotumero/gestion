@@ -19,6 +19,17 @@ create table if not exists public.workforce_entries (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.manual_cities (
+  id uuid primary key default gen_random_uuid(),
+  country text not null,
+  city text not null,
+  x integer not null,
+  z integer not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (country, city)
+);
+
 alter table public.app_users add column if not exists username text;
 alter table public.app_users add column if not exists password_hash text;
 alter table public.app_users add column if not exists is_admin boolean not null default false;
@@ -31,9 +42,18 @@ alter table public.workforce_entries add column if not exists is_deleted boolean
 alter table public.workforce_entries add column if not exists created_at timestamptz not null default now();
 alter table public.workforce_entries add column if not exists updated_at timestamptz not null default now();
 
+alter table public.manual_cities add column if not exists country text not null default '';
+alter table public.manual_cities add column if not exists city text not null default '';
+alter table public.manual_cities add column if not exists x integer not null default 0;
+alter table public.manual_cities add column if not exists z integer not null default 0;
+alter table public.manual_cities add column if not exists created_at timestamptz not null default now();
+alter table public.manual_cities add column if not exists updated_at timestamptz not null default now();
+
 create unique index if not exists idx_app_users_username on public.app_users (username);
 create index if not exists idx_workforce_entries_created_at on public.workforce_entries (created_at desc);
 create index if not exists idx_workforce_entries_is_deleted on public.workforce_entries (is_deleted);
+create index if not exists idx_manual_cities_country on public.manual_cities (country);
+create index if not exists idx_manual_cities_city on public.manual_cities (city);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -72,11 +92,25 @@ begin
     before update on public.workforce_entries
     for each row execute function public.set_updated_at();
   end if;
+
+  if not exists (
+    select 1 from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where t.tgname = 'trg_manual_cities_updated_at'
+      and n.nspname = 'public'
+      and c.relname = 'manual_cities'
+  ) then
+    create trigger trg_manual_cities_updated_at
+    before update on public.manual_cities
+    for each row execute function public.set_updated_at();
+  end if;
 end
 $$;
 
 alter table public.app_users enable row level security;
 alter table public.workforce_entries enable row level security;
+alter table public.manual_cities enable row level security;
 
 -- En modo server se usa service role key desde backend.
 -- Se bloquea acceso directo desde anon/authenticated.
