@@ -4,7 +4,6 @@ const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = ["NAME", "WORK", "STATUS", "PAYMENT STATUS", "PRICE PER UNIT", "QUANTITY", "SALARY", "DATE", "HOW TO"];
 const LANG_KEY = "vanaco_lang_v1";
-const CITY_KEY = "vanaco_city_list_v1";
 
 const state = {
   user: null,
@@ -218,7 +217,7 @@ async function init() {
   bindEvents();
   applyI18n();
   setAuthMessage(t("auth.login_prompt"), "info");
-  loadCities();
+  await loadCities();
   renderCitySelectors();
 
   const session = await apiGet("/api/session");
@@ -331,6 +330,9 @@ async function enterDashboard() {
   el.entryBar.classList.toggle("hidden", !state.user.is_admin);
   el.adminPanel.classList.toggle("hidden", !state.user.is_admin);
 
+  await loadCities();
+  renderCitySelectors();
+  updateDistance();
   await loadRows();
   if (state.user.is_admin) {
     await loadMembers();
@@ -655,20 +657,16 @@ function onToggleLang() {
   applyI18n();
 }
 
-function loadCities() {
+async function loadCities() {
   try {
-    const raw = localStorage.getItem(CITY_KEY);
-    state.cities = raw ? JSON.parse(raw) : [];
+    const data = await apiGet("/api/cities");
+    state.cities = Array.isArray(data?.cities) ? data.cities : [];
   } catch {
     state.cities = [];
   }
 }
 
-function saveCities() {
-  localStorage.setItem(CITY_KEY, JSON.stringify(state.cities || []));
-}
-
-function onAddCity(event) {
+async function onAddCity(event) {
   event.preventDefault();
   const country = String(el.manualCountry.value || "").trim();
   const city = String(el.manualCity.value || "").trim();
@@ -678,15 +676,8 @@ function onAddCity(event) {
     setAuthMessage(t("actions.invalid_file"), "error");
     return;
   }
-  const existingIndex = (state.cities || []).findIndex(
-    (c) => c.country.toLowerCase() === country.toLowerCase() && c.city.toLowerCase() === city.toLowerCase()
-  );
-  if (existingIndex >= 0) {
-    state.cities[existingIndex] = { country, city, x, z };
-  } else {
-    state.cities.push({ country, city, x, z });
-  }
-  saveCities();
+  await apiPost("/api/cities", { country, city, x, z });
+  await loadCities();
   el.manualForm.reset();
   renderCitySelectors();
   updateDistance();
