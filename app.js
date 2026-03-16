@@ -678,7 +678,14 @@ function onAddCity(event) {
     setAuthMessage(t("actions.invalid_file"), "error");
     return;
   }
-  state.cities.push({ country, city, x, z });
+  const existingIndex = (state.cities || []).findIndex(
+    (c) => c.country.toLowerCase() === country.toLowerCase() && c.city.toLowerCase() === city.toLowerCase()
+  );
+  if (existingIndex >= 0) {
+    state.cities[existingIndex] = { country, city, x, z };
+  } else {
+    state.cities.push({ country, city, x, z });
+  }
   saveCities();
   el.manualForm.reset();
   renderCitySelectors();
