@@ -8,10 +8,9 @@
         "includeFiles": [
           "index.html",
           "styles.css",
-          "script.js",
-          "logo-aethelgard.png",
-          "Aethelgard.png",
-          "logo-pokerivals.png"
+          "app.js",
+          "Vanaco Working Force/Principal.html",
+          "Vanaco Working Force - Principal.csv"
         ]
       }
     }
