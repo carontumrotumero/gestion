@@ -47,6 +47,61 @@
       </header>
 
       <main class="layout">
+        <section class="panel manual-panel" id="manualPanel">
+          <h2 data-i18n="manual.title">Ciudades manuales</h2>
+          <p data-i18n="manual.subtitle">Añade países y ciudades con coordenadas X/Z para calcular distancias.</p>
+          <form id="manualForm" class="manual-grid">
+            <label class="field">
+              <span data-i18n="manual.country">País</span>
+              <input id="manualCountry" type="text" placeholder="España" data-i18n-placeholder="manual.country_placeholder" />
+            </label>
+            <label class="field">
+              <span data-i18n="manual.city">Ciudad</span>
+              <input id="manualCity" type="text" placeholder="Madrid" data-i18n-placeholder="manual.city_placeholder" />
+            </label>
+            <label class="field">
+              <span data-i18n="manual.x">X</span>
+              <input id="manualX" type="number" placeholder="0" />
+            </label>
+            <label class="field">
+              <span data-i18n="manual.z">Z</span>
+              <input id="manualZ" type="number" placeholder="0" />
+            </label>
+            <button class="btn btn-primary" type="submit" data-i18n="manual.add">Añadir ciudad</button>
+          </form>
+
+          <div class="manual-calc">
+            <div class="manual-selects">
+              <label class="field">
+                <span data-i18n="manual.from_country">País origen</span>
+                <select id="fromCountry"></select>
+              </label>
+              <label class="field">
+                <span data-i18n="manual.from_city">Ciudad origen</span>
+                <select id="fromCity"></select>
+              </label>
+              <label class="field">
+                <span data-i18n="manual.to_country">País destino</span>
+                <select id="toCountry"></select>
+              </label>
+              <label class="field">
+                <span data-i18n="manual.to_city">Ciudad destino</span>
+                <select id="toCity"></select>
+              </label>
+            </div>
+            <div class="manual-pricing">
+              <label class="field">
+                <span data-i18n="manual.price_per_block">Precio por bloque</span>
+                <input id="pricePerBlock" type="number" step="0.01" placeholder="0.00" />
+              </label>
+              <div class="manual-results">
+                <div><span data-i18n="manual.distance">Distancia</span>: <b id="distanceResult">0</b></div>
+                <div><span data-i18n="manual.cost">Coste</span>: <b id="costResult">0</b></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="entryBar" class="panel entry-bar hidden">
           <h2 data-i18n="entry.new_title">Nueva entrada</h2>
           <form id="newEntryForm" class="entry-grid"></form>

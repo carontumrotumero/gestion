@@ -4,6 +4,7 @@ const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = ["NAME", "WORK", "STATUS", "PAYMENT STATUS", "PRICE PER UNIT", "QUANTITY", "SALARY", "DATE", "HOW TO"];
 const LANG_KEY = "vanaco_lang_v1";
+const CITY_KEY = "vanaco_city_list_v1";
 
 const state = {
   user: null,
@@ -47,6 +48,18 @@ const el = {
   newUserPassInput: document.getElementById("newUserPassInput"),
   newUserAdminInput: document.getElementById("newUserAdminInput"),
   createUserBtn: document.getElementById("createUserBtn"),
+  manualForm: document.getElementById("manualForm"),
+  manualCountry: document.getElementById("manualCountry"),
+  manualCity: document.getElementById("manualCity"),
+  manualX: document.getElementById("manualX"),
+  manualZ: document.getElementById("manualZ"),
+  fromCountry: document.getElementById("fromCountry"),
+  fromCity: document.getElementById("fromCity"),
+  toCountry: document.getElementById("toCountry"),
+  toCity: document.getElementById("toCity"),
+  pricePerBlock: document.getElementById("pricePerBlock"),
+  distanceResult: document.getElementById("distanceResult"),
+  costResult: document.getElementById("costResult"),
 };
 
 const I18N = {
@@ -105,6 +118,22 @@ const I18N = {
     "stats.total": "Total salario",
     "table.actions": "Acciones",
     "lang.label": "Cambiar idioma",
+    "manual.title": "Ciudades manuales",
+    "manual.subtitle": "Añade países y ciudades con coordenadas X/Z para calcular distancias.",
+    "manual.country": "País",
+    "manual.city": "Ciudad",
+    "manual.x": "X",
+    "manual.z": "Z",
+    "manual.add": "Añadir ciudad",
+    "manual.country_placeholder": "España",
+    "manual.city_placeholder": "Madrid",
+    "manual.from_country": "País origen",
+    "manual.from_city": "Ciudad origen",
+    "manual.to_country": "País destino",
+    "manual.to_city": "Ciudad destino",
+    "manual.price_per_block": "Precio por bloque",
+    "manual.distance": "Distancia",
+    "manual.cost": "Coste",
   },
   en: {
     "app.title": "Vanaco Working Force",
@@ -161,6 +190,22 @@ const I18N = {
     "stats.total": "Total salary",
     "table.actions": "Actions",
     "lang.label": "Switch language",
+    "manual.title": "Manual cities",
+    "manual.subtitle": "Add countries and cities with X/Z coordinates to calculate distances.",
+    "manual.country": "Country",
+    "manual.city": "City",
+    "manual.x": "X",
+    "manual.z": "Z",
+    "manual.add": "Add city",
+    "manual.country_placeholder": "Spain",
+    "manual.city_placeholder": "Madrid",
+    "manual.from_country": "From country",
+    "manual.from_city": "From city",
+    "manual.to_country": "To country",
+    "manual.to_city": "To city",
+    "manual.price_per_block": "Price per block",
+    "manual.distance": "Distance",
+    "manual.cost": "Cost",
   },
 };
 
@@ -173,6 +218,8 @@ async function init() {
   bindEvents();
   applyI18n();
   setAuthMessage(t("auth.login_prompt"), "info");
+  loadCities();
+  renderCitySelectors();
 
   const session = await apiGet("/api/session");
   if (session?.loggedIn && session.user) {
@@ -189,6 +236,18 @@ function bindEvents() {
   el.registerBtn.addEventListener("click", onRegister);
   el.logoutBtn.addEventListener("click", onLogout);
   el.langToggle.addEventListener("click", onToggleLang);
+  el.manualForm.addEventListener("submit", onAddCity);
+  el.fromCountry.addEventListener("change", () => {
+    populateCitySelect(el.fromCountry, el.fromCity);
+    updateDistance();
+  });
+  el.toCountry.addEventListener("change", () => {
+    populateCitySelect(el.toCountry, el.toCity);
+    updateDistance();
+  });
+  el.fromCity.addEventListener("change", updateDistance);
+  el.toCity.addEventListener("change", updateDistance);
+  el.pricePerBlock.addEventListener("input", updateDistance);
 
   el.searchInput.addEventListener("input", (e) => {
     state.search = String(e.target.value || "").toLowerCase().trim();
@@ -580,6 +639,8 @@ function refreshDynamicLanguage() {
   if (state.user) {
     el.roleSummary.textContent = state.user.is_admin ? t("role.admin") : t("role.viewer");
   }
+  renderCitySelectors();
+  updateDistance();
   renderEntryForm();
   renderTable();
   updateStats();
@@ -592,6 +653,94 @@ function onToggleLang() {
   state.lang = state.lang === "es" ? "en" : "es";
   localStorage.setItem(LANG_KEY, state.lang);
   applyI18n();
+}
+
+function loadCities() {
+  try {
+    const raw = localStorage.getItem(CITY_KEY);
+    state.cities = raw ? JSON.parse(raw) : [];
+  } catch {
+    state.cities = [];
+  }
+}
+
+function saveCities() {
+  localStorage.setItem(CITY_KEY, JSON.stringify(state.cities || []));
+}
+
+function onAddCity(event) {
+  event.preventDefault();
+  const country = String(el.manualCountry.value || "").trim();
+  const city = String(el.manualCity.value || "").trim();
+  const x = Number(el.manualX.value);
+  const z = Number(el.manualZ.value);
+  if (!country || !city || !Number.isFinite(x) || !Number.isFinite(z)) {
+    setAuthMessage(t("actions.invalid_file"), "error");
+    return;
+  }
+  state.cities.push({ country, city, x, z });
+  saveCities();
+  el.manualForm.reset();
+  renderCitySelectors();
+  updateDistance();
+}
+
+function uniqueCountries() {
+  return [...new Set((state.cities || []).map((c) => c.country))].sort((a, b) => a.localeCompare(b));
+}
+
+function renderCitySelectors() {
+  const countries = uniqueCountries();
+  fillSelectOptions(el.fromCountry, countries);
+  fillSelectOptions(el.toCountry, countries);
+  populateCitySelect(el.fromCountry, el.fromCity);
+  populateCitySelect(el.toCountry, el.toCity);
+}
+
+function fillSelectOptions(select, options) {
+  const prev = select.value;
+  select.innerHTML = "";
+  options.forEach((opt) => {
+    const o = document.createElement("option");
+    o.value = opt;
+    o.textContent = opt;
+    select.appendChild(o);
+  });
+  if (options.includes(prev)) select.value = prev;
+}
+
+function populateCitySelect(countrySelect, citySelect) {
+  const country = countrySelect.value;
+  const cities = (state.cities || [])
+    .filter((c) => c.country === country)
+    .map((c) => c.city)
+    .filter(Boolean);
+  fillSelectOptions(citySelect, cities);
+}
+
+function findCity(country, city) {
+  return (state.cities || []).find((c) => c.country === country && c.city === city) || null;
+}
+
+function updateDistance() {
+  const fromCountry = el.fromCountry.value;
+  const toCountry = el.toCountry.value;
+  const fromCity = el.fromCity.value;
+  const toCity = el.toCity.value;
+  const from = findCity(fromCountry, fromCity);
+  const to = findCity(toCountry, toCity);
+  if (!from || !to) {
+    el.distanceResult.textContent = "0";
+    el.costResult.textContent = "0";
+    return;
+  }
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const distance = Math.round(Math.sqrt(dx * dx + dz * dz));
+  const price = Number(el.pricePerBlock.value) || 0;
+  const cost = Math.round(distance * price * 100) / 100;
+  el.distanceResult.textContent = String(distance);
+  el.costResult.textContent = String(cost);
 }
 
 async function runBusy(fn) {
