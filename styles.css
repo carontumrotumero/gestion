@@ -22,6 +22,7 @@ body {
   color: var(--text);
   background: radial-gradient(circle at 10% 0%, #e5f4e8, transparent 38%),
     radial-gradient(circle at 90% 10%, #deeee2, transparent 42%), var(--bg);
+  overflow-x: hidden;
 }
 
 .hidden {
@@ -139,27 +140,53 @@ select {
   gap: 1rem;
 }
 
-.hero h1 {
-  margin: 0;
-  font-size: clamp(1.8rem, 3.2vw, 2.9rem);
+.welcome {
+  display: grid;
+  gap: 0.25rem;
 }
 
-#roleSummary {
-  margin: 0.35rem 0 0;
+.welcome-label {
+  margin: 0;
   color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.welcome-name {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.welcome-role {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .hero-actions {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
-#userBadge {
-  background: #edf7ef;
-  border: 1px solid #d0e5d4;
-  border-radius: 999px;
-  padding: 0.4rem 0.85rem;
+.menu-panel {
+  max-width: 1320px;
+  margin: 0 auto 0.6rem;
+}
+
+.menu-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+}
+
+.menu-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .lang-toggle {
@@ -292,6 +319,7 @@ select {
 
 .table-wrap {
   overflow: auto;
+  max-width: 100%;
 }
 
 table {
@@ -377,6 +405,7 @@ td.actions-cell {
 @media (max-width: 860px) {
   .hero {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .auth-card {
@@ -390,5 +419,43 @@ td.actions-cell {
 
   .admin-create {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .layout {
+    padding: 0 0.85rem 1.6rem;
+  }
+
+  .panel {
+    padding: 0.85rem;
+  }
+
+  .menu-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-grid,
+  .manual-selects,
+  .manual-pricing,
+  .entry-grid,
+  .controls-row,
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-grid button,
+  .entry-grid button {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .controls-row.actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .controls-row.actions .btn {
+    width: 100%;
   }
 }

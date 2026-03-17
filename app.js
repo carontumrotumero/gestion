@@ -1,5 +1,7 @@
-const APP_VERSION = "2026-03-14.1";
+const APP_VERSION = "2026-03-17.2";
 const ROW_LOAD_LIMIT = 500;
+const AUTO_REFRESH_MS = 1000;
+const ANDROID_REFRESH_MS = 2500;
 const ORIGINAL_CSV_FILE = "./Vanaco Working Force - Principal.csv";
 const ORIGINAL_HTML_FILE = "./Vanaco Working Force/Principal.html";
 const DEFAULT_HEADERS = ["NAME", "WORK", "STATUS", "PAYMENT STATUS", "PRICE PER UNIT", "QUANTITY", "SALARY", "DATE", "HOW TO"];
@@ -14,6 +16,10 @@ const state = {
   paymentFilter: "",
   busy: false,
   lang: localStorage.getItem(LANG_KEY) || "es",
+  refreshTimer: null,
+  refreshInFlight: false,
+  rowsSignature: "",
+  citiesSignature: "",
 };
 
 const el = {
@@ -29,6 +35,10 @@ const el = {
   roleSummary: document.getElementById("roleSummary"),
   userBadge: document.getElementById("userBadge"),
   logoutBtn: document.getElementById("logoutBtn"),
+  menuPanel: document.getElementById("menuPanel"),
+  controlsPanel: document.getElementById("controlsPanel"),
+  manualPanel: document.getElementById("manualPanel"),
+  dataPanel: document.getElementById("dataPanel"),
   entryBar: document.getElementById("entryBar"),
   newEntryForm: document.getElementById("newEntryForm"),
   searchInput: document.getElementById("searchInput"),
@@ -66,6 +76,7 @@ const I18N = {
   es: {
     "app.title": "Vanaco Working Force",
     "app.subtitle": "Panel de gestión",
+    "app.welcome": "Bienvenido",
     "auth.subtitle": "Acceso por usuario y contraseña",
     "auth.username": "Usuario",
     "auth.password": "Contraseña",
@@ -78,8 +89,8 @@ const I18N = {
     "auth.logged_out": "Sesión cerrada.",
     "auth.login_prompt": "Introduce usuario y contraseña.",
     "auth.pending": "Usuario registrado. Espera aprobación del admin.",
-    "role.admin": "Rol: Administrador",
-    "role.viewer": "Rol: Usuario (solo lectura)",
+    "role.admin": "Administrador",
+    "role.viewer": "Usuario (solo lectura)",
     "entry.new_title": "Nueva entrada",
     "entry.save": "Guardar nueva entrada",
     "filters.search": "Buscar",
@@ -134,10 +145,14 @@ const I18N = {
     "manual.price_per_block": "Precio por bloque",
     "manual.distance": "Distancia",
     "manual.cost": "Coste",
+    "menu.routes": "Rutas y precio",
+    "menu.add": "Añadir nuevo contenido",
+    "menu.data": "Datos ya puestos",
   },
   en: {
     "app.title": "Vanaco Working Force",
     "app.subtitle": "Management dashboard",
+    "app.welcome": "Welcome",
     "auth.subtitle": "Access with username and password",
     "auth.username": "Username",
     "auth.password": "Password",
@@ -150,8 +165,8 @@ const I18N = {
     "auth.logged_out": "Session closed.",
     "auth.login_prompt": "Enter username and password.",
     "auth.pending": "User registered. Await admin approval.",
-    "role.admin": "Role: Administrator",
-    "role.viewer": "Role: Viewer (read only)",
+    "role.admin": "Administrator",
+    "role.viewer": "Viewer (read only)",
     "entry.new_title": "New entry",
     "entry.save": "Save new entry",
     "filters.search": "Search",
@@ -206,6 +221,9 @@ const I18N = {
     "manual.price_per_block": "Price per block",
     "manual.distance": "Distance",
     "manual.cost": "Cost",
+    "menu.routes": "Routes & pricing",
+    "menu.add": "Add new content",
+    "menu.data": "Existing data",
   },
 };
 
@@ -219,7 +237,6 @@ async function init() {
   applyI18n();
   setAuthMessage(t("auth.login_prompt"), "info");
   await loadCities();
-  renderCitySelectors();
 
   const session = await apiGet("/api/session");
   if (session?.loggedIn && session.user) {
@@ -273,6 +290,11 @@ function bindEvents() {
   el.resetBtn.addEventListener("click", () => loadRows());
 
   el.createUserBtn.addEventListener("click", onCreateUser);
+
+  el.menuButtons = Array.from(document.querySelectorAll(".menu-btn"));
+  el.menuButtons.forEach((btn) => {
+    btn.addEventListener("click", () => showSection(btn.dataset.section));
+  });
 }
 
 async function onLogin(event) {
@@ -319,6 +341,7 @@ async function onLogout() {
   await runBusy(async () => {
     await apiGet("/auth/logout");
     state.user = null;
+    stopAutoRefresh();
     showAuth();
     setAuthMessage(t("auth.logged_out"), "info");
   });
@@ -330,20 +353,96 @@ async function enterDashboard() {
   el.roleSummary.textContent = state.user.is_admin ? t("role.admin") : t("role.viewer");
   el.entryBar.classList.toggle("hidden", !state.user.is_admin);
   el.adminPanel.classList.toggle("hidden", !state.user.is_admin);
+  showSection(null);
 
   await loadCities();
-  renderCitySelectors();
-  updateDistance();
   await loadRows();
   if (state.user.is_admin) {
     await loadMembers();
   }
+  setTimeout(startAutoRefresh, 1200);
 }
 
-async function loadRows() {
+function showSection(sectionKey, scrollToTop = false) {
+  const sectionMap = {
+    routes: [el.manualPanel],
+    add: [el.entryBar, el.adminPanel],
+    data: [el.controlsPanel, el.stats, el.dataPanel],
+  };
+
+  Object.values(sectionMap)
+    .flat()
+    .forEach((node) => node && node.classList.add("hidden"));
+
+  if (sectionKey && sectionMap[sectionKey]) {
+    sectionMap[sectionKey].forEach((node) => {
+      if (!node) return;
+      if (node === el.entryBar && !state.user?.is_admin) return;
+      if (node === el.adminPanel && !state.user?.is_admin) return;
+      node.classList.remove("hidden");
+    });
+  }
+
+  if (el.menuButtons) {
+    el.menuButtons.forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.section === sectionKey);
+    });
+  }
+
+  if (scrollToTop) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+window.scrollToSection = function (sectionKey) {
+  showSection(sectionKey, true);
+};
+
+function isEditingTable() {
+  const active = document.activeElement;
+  if (!active || !el.dataPanel) return false;
+  return el.dataPanel.contains(active) && active.tagName === "INPUT";
+}
+
+function startAutoRefresh() {
+  if (state.refreshTimer) return;
+  const isAndroid = /Android/i.test(navigator.userAgent || "");
+  const interval = isAndroid ? ANDROID_REFRESH_MS : AUTO_REFRESH_MS;
+  state.refreshTimer = setInterval(async () => {
+    if (!state.user || state.busy) return;
+    if (document.hidden) return;
+    if (state.refreshInFlight) return;
+    state.refreshInFlight = true;
+    try {
+      await loadRows({ silent: true, skipIfUnchanged: true, allowRender: !isEditingTable() });
+      await loadCities({ skipIfUnchanged: true });
+    } catch (e) {
+      console.warn("Auto refresh failed", e);
+    } finally {
+      state.refreshInFlight = false;
+    }
+  }, interval);
+}
+
+function stopAutoRefresh() {
+  if (state.refreshTimer) {
+    clearInterval(state.refreshTimer);
+    state.refreshTimer = null;
+  }
+}
+
+async function loadRows(options = {}) {
+  const { silent = false, skipIfUnchanged = false, allowRender = true } = options;
   const payload = await apiGet(`/api/entries?limit=${ROW_LOAD_LIMIT}`);
   const rows = payload?.rows || [];
-  state.rows = Array.isArray(rows) ? rows.map((r) => ({ id: r.id, data: r.data || {} })) : [];
+  const normalized = Array.isArray(rows)
+    ? rows.map((r) => ({ id: r.id, data: r.data || {}, updated_at: r.updated_at, created_at: r.created_at }))
+    : [];
+  const signature = normalized.map((r) => `${r.id}:${r.updated_at || r.created_at || ""}`).join("|");
+  if (skipIfUnchanged && signature && signature === state.rowsSignature) return;
+
+  state.rowsSignature = signature;
+  state.rows = normalized.map((r) => ({ id: r.id, data: r.data || {} }));
   state.headers = inferHeaders(state.rows);
 
   if (state.user.is_admin && state.rows.length === 0) {
@@ -354,9 +453,15 @@ async function loadRows() {
     }
   }
 
-  renderEntryForm();
-  renderTable();
-  updateStats();
+  if (!silent) {
+    renderEntryForm();
+  }
+  if (allowRender && !isEditingTable()) {
+    renderTable();
+    updateStats();
+  } else if (!allowRender) {
+    updateStats();
+  }
 }
 
 function renderEntryForm() {
@@ -666,10 +771,17 @@ function onToggleLang() {
   applyI18n();
 }
 
-async function loadCities() {
+async function loadCities(options = {}) {
+  const { skipIfUnchanged = false } = options;
   try {
     const data = await apiGet("/api/cities");
-    state.cities = Array.isArray(data?.cities) ? data.cities : [];
+    const cities = Array.isArray(data?.cities) ? data.cities : [];
+    const signature = cities.map((c) => `${c.country}:${c.city}:${c.x}:${c.z}`).join("|");
+    if (skipIfUnchanged && signature && signature === state.citiesSignature) return;
+    state.citiesSignature = signature;
+    state.cities = cities;
+    renderCitySelectors();
+    updateDistance();
   } catch {
     state.cities = [];
   }
@@ -693,8 +805,6 @@ async function onAddCity(event) {
     await apiPost("/api/cities", { country, city, x, z });
     await loadCities();
     el.manualForm.reset();
-    renderCitySelectors();
-    updateDistance();
     setManualMessage("", "info");
   } catch (e) {
     setManualMessage(e.message || String(e), "error");

@@ -36,18 +36,26 @@
 
     <div id="appShell" class="hidden">
       <header class="hero">
-        <div>
-          <h1 data-i18n="app.title">Vanaco Working Force</h1>
-          <p id="roleSummary" data-i18n="app.subtitle">Panel de gestión</p>
+        <div class="welcome">
+          <p class="welcome-label" data-i18n="app.welcome">Bienvenido</p>
+          <h1 id="userBadge" class="welcome-name"></h1>
+          <p id="roleSummary" class="welcome-role"></p>
         </div>
         <div class="hero-actions">
-          <span id="userBadge"></span>
           <button id="logoutBtn" class="btn" data-i18n="auth.logout">Cerrar sesión</button>
         </div>
       </header>
 
+      <section id="menuPanel" class="panel menu-panel">
+        <div class="menu-buttons">
+          <button class="btn menu-btn" type="button" data-section="routes" data-i18n="menu.routes">Rutas y precio</button>
+          <button class="btn menu-btn" type="button" data-section="add" data-i18n="menu.add">Añadir nuevo contenido</button>
+          <button class="btn menu-btn" type="button" data-section="data" data-i18n="menu.data">Datos ya puestos</button>
+        </div>
+      </section>
+
       <main class="layout">
-        <section class="panel manual-panel" id="manualPanel">
+        <section class="panel manual-panel hidden" id="manualPanel">
           <h2 data-i18n="manual.title">Ciudades manuales</h2>
           <p data-i18n="manual.subtitle">Añade países y ciudades con coordenadas X/Z para calcular distancias.</p>
           <form id="manualForm" class="manual-grid">
@@ -108,7 +116,7 @@
           <form id="newEntryForm" class="entry-grid"></form>
         </section>
 
-        <section class="panel controls">
+        <section id="controlsPanel" class="panel controls hidden">
           <div class="controls-row">
             <label class="field">
               <span data-i18n="filters.search">Buscar</span>
@@ -131,9 +139,9 @@
           </div>
         </section>
 
-        <section class="panel stats" id="stats"></section>
+        <section class="panel stats hidden" id="stats"></section>
 
-        <section class="panel table-panel">
+        <section class="panel table-panel hidden" id="dataPanel">
           <div class="table-wrap">
             <table id="dataTable"><thead></thead><tbody></tbody></table>
           </div>
